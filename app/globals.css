@@ -1,0 +1,101 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Playfair Display", Georgia, serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Custom "Natural Tones" Palette */
+  --color-natural-cream: #F9F7F2;
+  --color-natural-charcoal: #2C2C2C;
+  --color-natural-border: #E5E1D8;
+  --color-natural-stone: #F0EDE6;
+  --color-natural-olive: #5A5A40;
+  --color-natural-dark-olive: #424231;
+  --color-natural-orange: #F27D26;
+  --color-natural-sage: #7A7A5D;
+  --color-natural-light-grey: #6B6B5E;
+  --color-natural-warmgrey: #EAE7DF;
+
+  /* Compatibility aliases for brand- classes so the entire UI updates automatically */
+  --color-brand-bg: var(--color-natural-cream);
+  --color-brand-dark: var(--color-natural-charcoal);
+  --color-brand-primary: var(--color-natural-olive);
+  --color-brand-secondary: var(--color-natural-light-grey);
+  --color-brand-border: var(--color-natural-border);
+  --color-brand-surface: var(--color-natural-stone);
+  --color-brand-stone: var(--color-natural-light-grey);
+
+  --shadow-brand: 0 4px 20px -2px rgba(90, 90, 64, 0.06);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideLeft {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-left {
+  animation: slideLeft 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom scrollbar styling for a cleaner dashboard look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #E5E0D8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A8A294;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-brand-bg);
+  color: var(--color-brand-dark);
+}
+
+/* Default heading color — :where() has zero specificity so Tailwind utilities override it.
+   Use !text-{color} on headings inside colored containers to be safe. */
+:where(h1, h2, h3, h4, h5, h6, .font-serif-brand) {
+  font-family: var(--font-serif);
+  color: var(--color-natural-dark-olive);
+}
+
+/* Make all buttons have pointer cursor globally */
+button,
+[role="button"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"] {
+  cursor: pointer !important;
+}
+

@@ -1,0 +1,6 @@
+{
+  "name": "Seven Rocks",
+  "description": "Admin panel dashboard for managing tenants, billing, notifications, add-on services, housekeeping, and maintenance tickets in an in-house co-living property management application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
