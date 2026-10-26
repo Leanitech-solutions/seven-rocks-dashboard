@@ -43,6 +43,7 @@ import {
   PolicyFAQ
 } from '../types';
 import { SevenRocksLogo } from './SevenRocksLogo';
+import { FEATURES } from '../lib/features';
 
 interface ResidentPortalProps {
   tenant: Tenant;
@@ -131,6 +132,11 @@ export default function ResidentPortal({
   const [checkoutInvoice, setCheckoutInvoice] = useState<Invoice | null>(null);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
 
+  // Early departure modal
+  const [showDepartureModal, setShowDepartureModal] = useState(false);
+  const [departureDate, setDepartureDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [departureReason, setDepartureReason] = useState('');
+
   // Dynamic pricing catalogs (prepopulated with passed list)
   const CATALOG_ITEMS = catalogItems.length > 0 ? catalogItems : [];
 
@@ -172,6 +178,23 @@ export default function ResidentPortal({
       newEndDateStr = "2027-07-09";
     }
 
+    // 1. Submit priority Support Ticket per docx specifications
+    const ticketId = `TCK-${Math.floor(100 + Math.random() * 900)}`;
+    const newTicket: SupportTicket = {
+      id: ticketId,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      roomNumber: tenant.roomNumber,
+      building: tenant.building,
+      category: 'Other',
+      priority: 'High',
+      status: 'Open',
+      subject: `Stay Extension Request: +${months} Months (New End: ${newEndDateStr})`,
+      description: `Resident ${tenant.name} requested a stay extension of ${months} months.\nCurrent Lease End Date: ${currentEndDateStr}\nRequested New End Date: ${newEndDateStr}\nResident Notes: ${notes.trim() || 'No additional notes provided.'}\n\n[Staff Action]: Review approval outside portal and prepare extension document via Internal Document Generator.`,
+      createdAt: new Date().toISOString()
+    };
+    onAddTicket(newTicket);
+
     const newReq: ContractExtensionRequest = {
       id: `EXT-${Math.floor(100 + Math.random() * 900)}`,
       tenantId: tenant.id,
@@ -187,8 +210,30 @@ export default function ResidentPortal({
     };
 
     onAddExtensionRequest(newReq);
-    triggerSuccess(`Your extension request of ${months} Months (New Check-out: ${newEndDateStr}) has been submitted to the Seven Rocks admin team for approval.`);
+    triggerSuccess(`Your stay extension request (+${months} mo) has been submitted via Support Ticket #${ticketId}. Operations will review your request and prepare contract documentation.`);
     setExtNotes('');
+  };
+
+  const handleRequestEarlyDeparture = (e: FormEvent) => {
+    e.preventDefault();
+    const ticketId = `TCK-${Math.floor(100 + Math.random() * 900)}`;
+    const newTicket: SupportTicket = {
+      id: ticketId,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      roomNumber: tenant.roomNumber,
+      building: tenant.building,
+      category: 'Other',
+      priority: 'High',
+      status: 'Open',
+      subject: `Early Departure / Cancellation Request (Target: ${departureDate})`,
+      description: `Resident ${tenant.name} has submitted an early departure / cancellation request.\nTarget Move-Out Date: ${departureDate}\nScheduled Lease End Date: ${tenant.contractEndDate}\nReason: ${departureReason.trim() || 'No reason provided.'}\n\n[Staff Action]: Review outside portal, conduct move-out inspection, and update departure clearance in Staff Verification Checklist.`,
+      createdAt: new Date().toISOString()
+    };
+    onAddTicket(newTicket);
+    triggerSuccess(`Early departure request submitted via Support Ticket #${ticketId}. Management will review and contact you.`);
+    setShowDepartureModal(false);
+    setDepartureReason('');
   };
 
   // --- Action Submissions ---
@@ -232,12 +277,16 @@ export default function ResidentPortal({
       priceValue: item.priceVal,
       requestDate: new Date().toISOString().split('T')[0],
       status: 'Pending',
-      paymentOption: 'Request Invoice (Pay at Desk)'
+      paymentOption: FEATURES.residentBilling ? 'Request Invoice (Pay at Desk)' : 'Monthly Statement Billing'
     };
 
     onAddAddOnRequest(newRequest);
     setConfirmAddOnItem(null);
-    triggerSuccess(`Invoice requested for "${item.name}"! Your request has been submitted for front desk approval.`);
+    triggerSuccess(
+      FEATURES.residentBilling
+        ? `Invoice requested for "${item.name}"! Your request has been submitted for front desk approval.`
+        : `Service request for "${item.name}" submitted! Management will review and include in your monthly statement.`
+    );
   };
 
   const handleHkDateChange = (val: string) => {
@@ -475,17 +524,19 @@ export default function ResidentPortal({
             >
               Housekeeping
             </button>
-            <button
-              onClick={() => setActiveTab('billing')}
-              className={`px-4 py-2 rounded-lg text-xs font-bold relative transition-all cursor-pointer ${
-                activeTab === 'billing' ? 'bg-brand-primary text-white' : 'text-brand-secondary hover:text-brand-dark'
-              }`}
-            >
-              <span>Billing</span>
-              {pendingInvoices.length > 0 && (
-                <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
-              )}
-            </button>
+            {FEATURES.residentBilling && (
+              <button
+                onClick={() => setActiveTab('billing')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold relative transition-all cursor-pointer ${
+                  activeTab === 'billing' ? 'bg-brand-primary text-white' : 'text-brand-secondary hover:text-brand-dark'
+                }`}
+              >
+                <span>Billing</span>
+                {pendingInvoices.length > 0 && (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
+                )}
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('support')}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -587,20 +638,22 @@ export default function ResidentPortal({
                 <span>Housekeeping</span>
               </button>
 
-              <button
-                onClick={() => { setActiveTab('billing'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'billing' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
-                }`}
-              >
-                <div className="flex items-center space-x-3">
-                  <Receipt className="h-4 w-4" />
-                  <span>Billing & Invoices</span>
-                </div>
-                {pendingInvoices.length > 0 && (
-                  <span className="h-2 w-2 rounded-full bg-rose-500" />
-                )}
-              </button>
+              {FEATURES.residentBilling && (
+                <button
+                  onClick={() => { setActiveTab('billing'); setMobileMenuOpen(false); }}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'billing' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <Receipt className="h-4 w-4" />
+                    <span>Billing & Invoices</span>
+                  </div>
+                  {pendingInvoices.length > 0 && (
+                    <span className="h-2 w-2 rounded-full bg-rose-500" />
+                  )}
+                </button>
+              )}
 
               <button
                 onClick={() => { setActiveTab('support'); setMobileMenuOpen(false); }}
@@ -734,10 +787,14 @@ export default function ResidentPortal({
                     <div className="h-6 w-6 rounded-full bg-brand-surface text-brand-stone border border-brand-border flex items-center justify-center text-[10px] font-bold">
                       4
                     </div>
-                    <span className="text-xs font-bold text-brand-stone">4. Pay Escrow</span>
+                    <span className="text-xs font-bold text-brand-stone">
+                      {FEATURES.residentBilling ? '4. Pay Escrow' : '4. Check-in Verification'}
+                    </span>
                   </div>
                   <p className="text-[10px] text-brand-stone leading-relaxed font-medium">
-                    Settle move-in invoice and deposit to unlock smart-key.
+                    {FEATURES.residentBilling 
+                      ? 'Settle move-in invoice and deposit to unlock smart-key.'
+                      : 'Front desk completes verification of credentials to unlock smart-key.'}
                   </p>
                 </div>
               </div>
@@ -991,8 +1048,15 @@ export default function ResidentPortal({
                             </div>
                           </div>
 
-                          {/* Action submission button */}
-                          <div className="flex justify-end pt-1">
+                          {/* Action submission buttons */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-brand-border/60">
+                            <button
+                              type="button"
+                              onClick={() => setShowDepartureModal(true)}
+                              className="px-3 py-1.5 bg-brand-surface hover:bg-rose-50 text-rose-800 border border-brand-border text-[10px] font-bold rounded-xl transition-all cursor-pointer"
+                            >
+                              Request Early Departure / Cancellation
+                            </button>
                             <button
                               type="button"
                               id="submit-extension-request-btn"
@@ -1208,34 +1272,36 @@ export default function ResidentPortal({
               <div className="lg:col-span-1 space-y-6">
                 
                 {/* Financial Overview outstanding card */}
-                <div className="bg-brand-surface border border-brand-border p-6 rounded-2xl space-y-3.5">
-                  <span className="text-[10px] text-brand-stone font-bold uppercase tracking-wider block">Financial Summary</span>
-                  <div className="flex justify-between items-baseline">
-                    <h5 className="text-xs text-brand-secondary font-medium">Active Account Balance:</h5>
-                    <span className="text-xl font-mono font-extrabold text-brand-dark">
-                      €{totalOutstanding.toLocaleString('en-IE', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  {pendingInvoices.length > 0 ? (
-                    <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] leading-relaxed flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="block text-amber-800 font-bold">Pending Statements</span>
-                        <p className="text-brand-stone">You have {pendingInvoices.length} outstanding invoice(s).</p>
+                {FEATURES.residentBilling && (
+                  <div className="bg-brand-surface border border-brand-border p-6 rounded-2xl space-y-3.5">
+                    <span className="text-[10px] text-brand-stone font-bold uppercase tracking-wider block">Financial Summary</span>
+                    <div className="flex justify-between items-baseline">
+                      <h5 className="text-xs text-brand-secondary font-medium">Active Account Balance:</h5>
+                      <span className="text-xl font-mono font-extrabold text-brand-dark">
+                        €{totalOutstanding.toLocaleString('en-IE', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    {pendingInvoices.length > 0 ? (
+                      <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] leading-relaxed flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <span className="block text-amber-800 font-bold">Pending Statements</span>
+                          <p className="text-brand-stone">You have {pendingInvoices.length} outstanding invoice(s).</p>
+                        </div>
+                        <button 
+                          onClick={() => setActiveTab('billing')}
+                          className="px-2.5 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white font-bold rounded-lg text-[9.5px]"
+                        >
+                          Settle Now
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => setActiveTab('billing')}
-                        className="px-2.5 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white font-bold rounded-lg text-[9.5px]"
-                      >
-                        Settle Now
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] text-brand-primary font-semibold flex items-center gap-1.5">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      <span>Lease fully paid & in compliance.</span>
-                    </div>
-                  )}
-                </div>
+                    ) : (
+                      <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] text-brand-primary font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <span>Lease fully paid & in compliance.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Notifications & Announcements */}
                 <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs space-y-4">
@@ -1537,7 +1603,7 @@ export default function ResidentPortal({
         )}
 
         {/* --- TABS 4: BILLING & ONLINE PAYMENTS --- */}
-        {activeTab === 'billing' && (
+        {FEATURES.residentBilling && activeTab === 'billing' && (
           <div className="space-y-6 animate-fade-in">
             
             <div className="relative">
@@ -1953,7 +2019,7 @@ export default function ResidentPortal({
       </main>
 
       {/* --- DESK PAYMENT & INVOICE REQUEST MODAL --- */}
-      {checkoutInvoice && (
+      {FEATURES.residentBilling && checkoutInvoice && (
         <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl border border-brand-border max-w-md w-full p-6 space-y-6 shadow-2xl animate-scale-up">
             
@@ -2222,11 +2288,22 @@ export default function ResidentPortal({
               {/* Desk Invoice Notice */}
               <div className="p-4 bg-brand-surface border border-brand-border rounded-2xl space-y-2">
                 <div className="flex items-center space-x-2 text-brand-dark font-bold text-xs">
-                  <Receipt className="h-4 w-4 text-brand-primary shrink-0" />
-                  <span>Request Invoice for Add-On</span>
+                  {FEATURES.residentBilling ? (
+                    <>
+                      <Receipt className="h-4 w-4 text-brand-primary shrink-0" />
+                      <span>Request Invoice for Add-On</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 text-brand-primary shrink-0" />
+                      <span>Submit Add-on Request</span>
+                    </>
+                  )}
                 </div>
                 <p className="text-[11px] text-brand-secondary leading-relaxed">
-                  Upon submitting this request, an invoice will be generated. You can settle payment directly at the reception desk via cash, card, or Apple Pay.
+                  {FEATURES.residentBilling
+                    ? 'Upon submitting this request, an invoice will be generated. You can settle payment directly at the reception desk via cash, card, or Apple Pay.'
+                    : 'Your request will be submitted to the management team for review. Once approved, the service fee will be included in your monthly statement.'}
                 </p>
               </div>
 
@@ -2249,8 +2326,17 @@ export default function ResidentPortal({
                 onClick={handleConfirmAddOnSubmit}
                 className="px-5 py-2 bg-brand-primary hover:bg-[#4E4E37] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-brand flex items-center space-x-1.5"
               >
-                <Receipt className="h-3.5 w-3.5" />
-                <span>Request Invoice for Add-On</span>
+                {FEATURES.residentBilling ? (
+                  <>
+                    <Receipt className="h-3.5 w-3.5" />
+                    <span>Request Invoice for Add-On</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Submit Add-On Request</span>
+                  </>
+                )}
               </button>
             </div>
 
@@ -2339,6 +2425,78 @@ export default function ResidentPortal({
                 I have read and acknowledge this update
               </button>
             </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 5. Early Departure / Cancellation Modal */}
+      {showDepartureModal && (
+        <div className="fixed inset-0 bg-[#2C2C2C]/55 backdrop-blur-xs flex items-center justify-center p-4 z-[90] animate-fade-in">
+          <div className="bg-[#FAF9F6] rounded-3xl border border-brand-stone/60 shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-scale-up">
+            
+            <div className="bg-brand-surface text-brand-dark p-5 border-b border-brand-stone/60 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-rose-50 text-rose-800 border border-rose-200 rounded-xl">
+                  <Clock className="h-5 w-5 text-rose-700" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-xs uppercase tracking-wider text-brand-dark">Early Departure Request</h3>
+                  <p className="text-[10px] text-brand-secondary font-mono font-medium">Processed via Priority Support Ticket</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDepartureModal(false)}
+                className="text-brand-stone hover:text-brand-dark p-1 rounded-lg hover:bg-brand-border/40 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestEarlyDeparture} className="p-6 space-y-4 text-xs">
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed font-medium">
+                Per tenancy policy, early departure requests are routed directly to management as a priority support ticket for manual review and clearance scheduling.
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-bold text-brand-stone">Requested Move-Out Date</label>
+                <input
+                  type="date"
+                  required
+                  value={departureDate}
+                  onChange={(e) => setDepartureDate(e.target.value)}
+                  className="w-full bg-white border border-brand-border rounded-xl p-2.5 text-xs text-brand-dark font-medium"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-bold text-brand-stone">Reason for Early Departure</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Please describe reason for departure (relocation, job change, emergency)..."
+                  value={departureReason}
+                  onChange={(e) => setDepartureReason(e.target.value)}
+                  className="w-full bg-white border border-brand-border rounded-xl p-2.5 text-xs text-brand-dark font-medium"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-brand-border">
+                <button
+                  type="button"
+                  onClick={() => setShowDepartureModal(false)}
+                  className="px-4 py-2 text-brand-secondary hover:text-brand-dark font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+                >
+                  Submit Ticket Request
+                </button>
+              </div>
+            </form>
 
           </div>
         </div>

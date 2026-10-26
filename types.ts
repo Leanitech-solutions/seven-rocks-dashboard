@@ -35,6 +35,20 @@ export interface Tenant {
   checkInImages?: string[]; // check-in inspection images (data URLs or remote URLs)
   checkOutImages?: string[]; // check-out inspection images (data URLs or remote URLs)
   inventoryItems?: InventoryItem[]; // list of inventory items
+  verificationChecklist?: TenantVerificationChecklist;
+}
+
+export interface VerificationCheckpoint {
+  status: 'Pending' | 'Approved';
+  approvedBy?: string;
+  approvedAt?: string;
+}
+
+export interface TenantVerificationChecklist {
+  rentReceived: VerificationCheckpoint;
+  securityDeposit: VerificationCheckpoint;
+  adminFee: VerificationCheckpoint;
+  finalDeparture: VerificationCheckpoint;
 }
 
 export interface Notification {
@@ -61,7 +75,7 @@ export interface AddOnRequest {
   priceValue: number;
   requestDate: string;
   status: 'Pending' | 'Approved' | 'Rejected';
-  paymentOption?: 'Pay at Desk' | 'Request Invoice (Pay at Desk)';
+  paymentOption?: 'Pay at Desk' | 'Request Invoice (Pay at Desk)' | 'Monthly Statement Billing';
   paymentStatus?: 'Paid' | 'Unpaid';
   paymentMethod?: string;
   paymentDate?: string;

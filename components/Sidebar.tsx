@@ -8,13 +8,16 @@ import {
   Settings,
   LogOut,
   Shield,
-  X
+  X,
+  ClipboardCheck,
+  FileSpreadsheet
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { SevenRocksLogo } from './SevenRocksLogo';
 import { useToast } from '../lib/useToast';
+import { FEATURES } from '../lib/features';
 
 // Maps sidebar item IDs to the department key they belong to
 const DEPARTMENT_MAP: Record<string, string> = {
@@ -23,10 +26,11 @@ const DEPARTMENT_MAP: Record<string, string> = {
   addons: 'addons',
   housekeeping: 'housekeeping',
   billing: 'billing',
+  verification: 'tenants',
 };
 
 // Items that are always visible regardless of department
-const ALWAYS_VISIBLE = new Set(['dashboard', 'admins', 'settings']);
+const ALWAYS_VISIBLE = new Set(['dashboard', 'admins', 'settings', 'verification', 'documents']);
 
 interface SidebarProps {
   openTicketsCount: number;
@@ -108,7 +112,10 @@ export default function Sidebar({
       icon: Brush,
       badge: openTicketsCount > 0 ? openTicketsCount : undefined
     },
-    { id: 'billing', label: 'Billing & Invoices', icon: Receipt },
+    ...(FEATURES.adminBilling 
+      ? [{ id: 'billing', label: 'Billing & Invoices', icon: Receipt }] 
+      : [{ id: 'verification', label: 'Staff Verification', icon: ClipboardCheck }]),
+    { id: 'documents', label: 'Document Generator', icon: FileSpreadsheet },
     { id: 'admins', label: 'Staff & Admins', icon: Shield },
     { id: 'settings', label: 'Settings & Policies', icon: Settings },
   ];

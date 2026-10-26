@@ -31,6 +31,12 @@ function mapTenant(t: any): Tenant {
     monthlyRent: Number(t.rentAmount) || 0,
     oneTimeAdminFee: Number(t.oneTimeAdminFee) || 90,
     activeAddOns: t.activeAddOns || [],
+    verificationChecklist: t.verificationChecklist || {
+      rentReceived: { status: 'Pending' },
+      securityDeposit: { status: t.depositStatus === 'Paid' ? 'Approved' : 'Pending' },
+      adminFee: { status: 'Pending' },
+      finalDeparture: { status: t.status === 'checked_out' ? 'Approved' : 'Pending' },
+    },
   };
 }
 
@@ -281,6 +287,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         contractLengthMonths: updated.contractLengthMonths,
         oneTimeAdminFee: updated.oneTimeAdminFee,
         activeAddOns: updated.activeAddOns,
+        verificationChecklist: updated.verificationChecklist,
         status:
           updated.status === 'Checked-In' ? 'active'
           : updated.status === 'Checked-Out' ? 'checked_out'

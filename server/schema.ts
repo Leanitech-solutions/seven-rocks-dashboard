@@ -37,6 +37,7 @@ export const tenants = pgTable("tenants", {
   idDocumentUrl: text("id_document_url"),
   contractUrl: text("contract_url"),
   contractVerified: boolean("contract_verified").default(false),
+  verificationChecklist: json("verification_checklist").$type<any>(),
   activeAddOns: json("active_add_ons").$type<string[]>().default([]),
   passwordHash: text("password_hash"),
   onboardingToken: text("onboarding_token"),

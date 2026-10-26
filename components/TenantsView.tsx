@@ -42,6 +42,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { Tenant, ContractExtensionRequest, Invoice, SupportTicket } from '../types';
+import { FEATURES } from '../lib/features';
 
 interface TenantsViewProps {
   tenants: Tenant[];
@@ -402,9 +403,10 @@ export default function TenantsView({
     origEndDate.setMonth(origEndDate.getMonth() + extensionMonths);
     const newEndDateStr = origEndDate.toISOString().split('T')[0];
 
-    // Recompute deposit requirement based on new length
-    const depositMultiplier = newLength < 6 ? 1.5 : 2;
-    const newDepositAmount = selectedTenant.monthlyRent * depositMultiplier;
+    // Recompute deposit requirement based on new length only if automatic calculations enabled
+    const newDepositAmount = FEATURES.automaticFinancialCalculations 
+      ? selectedTenant.monthlyRent * (newLength < 6 ? 1.5 : 2)
+      : (selectedTenant.depositAmount || 0);
 
     const updated: Tenant = {
       ...selectedTenant,
@@ -1114,8 +1116,9 @@ export default function TenantsView({
 
                   const diffMs = checkoutDate.getTime() - checkinDate.getTime();
                   const calculatedLength = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.4)));
-                  const depositMultiplier = calculatedLength < 6 ? 1.5 : 2;
-                  const calculatedDeposit = selectedTenant.monthlyRent * depositMultiplier;
+                  const calculatedDeposit = FEATURES.automaticFinancialCalculations
+                    ? selectedTenant.monthlyRent * (calculatedLength < 6 ? 1.5 : 2)
+                    : (selectedTenant.depositAmount || 0);
 
                   const updated: Tenant = {
                     ...selectedTenant,
@@ -1267,8 +1270,9 @@ export default function TenantsView({
 
                   const diffMs = checkoutDate.getTime() - checkinDate.getTime();
                   const calculatedLength = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.4)));
-                  const depositMultiplier = calculatedLength < 6 ? 1.5 : 2;
-                  const calculatedDeposit = selectedTenant.monthlyRent * depositMultiplier;
+                  const calculatedDeposit = FEATURES.automaticFinancialCalculations
+                    ? selectedTenant.monthlyRent * (calculatedLength < 6 ? 1.5 : 2)
+                    : (selectedTenant.depositAmount || 0);
 
                   const updated: Tenant = {
                     ...selectedTenant,
@@ -2124,14 +2128,16 @@ export default function TenantsView({
                   <span>New Total Lease length</span>
                   <span>{selectedTenant.contractLengthMonths + extensionMonths} Months</span>
                 </div>
-                <div className="flex justify-between font-extrabold text-brand-primary text-[13px] font-mono">
-                  <span>New Deposit Requirement</span>
-                  <span>
-                    €{((selectedTenant.contractLengthMonths + extensionMonths) < 6 
-                      ? selectedTenant.monthlyRent * 1.5 
-                      : selectedTenant.monthlyRent * 2).toFixed(2)}
-                  </span>
-                </div>
+                {FEATURES.automaticFinancialCalculations && (
+                  <div className="flex justify-between font-extrabold text-brand-primary text-[13px] font-mono">
+                    <span>New Deposit Requirement</span>
+                    <span>
+                      €{((selectedTenant.contractLengthMonths + extensionMonths) < 6 
+                        ? selectedTenant.monthlyRent * 1.5 
+                        : selectedTenant.monthlyRent * 2).toFixed(2)}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

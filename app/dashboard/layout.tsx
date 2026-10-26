@@ -33,6 +33,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     'addons': 'Add-on Services & Amenities',
     'housekeeping': 'Sanitation & Work Orders',
     'billing': 'Financials & Invoicing',
+    'verification': 'Staff Verification Checklist',
+    'documents': 'Internal Document Generator',
     'admins': 'Staff & Admin Management',
     'settings': 'Property Settings & Policies'
   };

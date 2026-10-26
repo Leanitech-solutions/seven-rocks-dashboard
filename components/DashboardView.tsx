@@ -7,9 +7,12 @@ import {
   ArrowRight,
   PlusCircle,
   BellRing,
-  ShieldAlert
+  ShieldAlert,
+  ClipboardCheck
 } from 'lucide-react';
+import Link from 'next/link';
 import { Tenant, SupportTicket, AddOnRequest, Invoice, ActivityLog } from '../types';
+import { FEATURES } from '../lib/features';
 
 interface DashboardViewProps {
   tenants: Tenant[];
@@ -231,89 +234,159 @@ export default function DashboardView({
         
         {/* Left Column: Occupancy Breakdown & Quick Stats */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-xs">
-            <h4 className="font-bold text-brand-dark text-sm mb-4 font-serif">Portfolio Analytics</h4>
-            
-            {/* Occupancy Radial Indicator */}
-            <div className="flex flex-col items-center justify-center p-4 bg-brand-surface border border-brand-border rounded-xl mb-6">
-              <div className="relative flex items-center justify-center">
-                {/* Simulated circle with simple ring styling */}
-                <svg className="w-32 h-32 transform -rotate-90">
-                  <circle cx="64" cy="64" r="50" strokeWidth="8" stroke="#E5E0D8" fill="transparent" />
-                  <circle 
-                    cx="64" 
-                    cy="64" 
-                    r="50" 
-                    strokeWidth="8" 
-                    stroke="#5A5A40" 
-                    fill="transparent" 
-                    strokeDasharray="314"
-                    strokeDashoffset={314 - (314 * occupancyPercentage) / 100}
-                    className="transition-all duration-1000 ease-out"
-                  />
-                </svg>
-                <div className="absolute flex flex-col items-center">
-                  <span className="text-2xl font-extrabold text-brand-dark font-mono">{occupancyPercentage}%</span>
-                  <span className="text-[10px] font-bold text-brand-stone uppercase tracking-wider">Occupancy</span>
-                </div>
-              </div>
-              <p className="text-xs text-brand-secondary font-medium mt-4 text-center">
-                {occupiedRooms} of {totalRooms} rooms allocated. 
-              </p>
-            </div>
-
-            {/* Real-time Property Type Utilization Visualizer */}
-            <div className="mb-6 space-y-3.5 border-t border-brand-border/60 pt-5">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-brand-stone uppercase tracking-wider">Utilization by Category</span>
-                <span className="inline-flex items-center space-x-1 text-[10px] text-natural-orange font-bold font-mono">
-                  <span className="h-1.5 w-1.5 rounded-full bg-natural-orange animate-pulse" />
-                  <span>Real-time</span>
-                </span>
-              </div>
+          {(FEATURES.pmsOccupancyControls || FEATURES.financialMetrics) && (
+            <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-xs">
+              <h4 className="font-bold text-brand-dark text-sm mb-4 font-serif">Portfolio Analytics</h4>
               
-              <div className="space-y-3">
-                {occupancyByType.map((type) => (
-                  <div 
-                    key={type.id} 
-                    className="space-y-1.5 bg-brand-bg p-2.5 rounded-xl border border-brand-border hover:border-natural-orange/30 transition-all duration-300 ease-in-out group"
-                  >
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-semibold text-brand-dark group-hover:text-natural-orange transition-colors">{type.name}</span>
-                      <span className="font-bold text-brand-stone font-mono text-[11px]">
-                        {type.occupied} <span className="text-brand-secondary/70 font-normal">/ {type.capacity}</span> <span className="text-[10px] text-brand-primary px-1 bg-brand-surface rounded font-bold">{type.percentage}%</span>
-                      </span>
-                    </div>
-                    {/* Progress Bar with modern sleekness */}
-                    <div className="w-full bg-brand-surface rounded-full h-1.5 overflow-hidden relative border border-brand-border/40">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-1000 ease-out ${
-                          type.id === 'coliving' ? 'bg-natural-olive' : type.id === 'apartment' ? 'bg-natural-orange' : 'bg-natural-sage'
-                        }`}
-                        style={{ width: `${type.percentage}%` }}
+              {/* Occupancy Radial Indicator */}
+              {FEATURES.pmsOccupancyControls && (
+                <div className="flex flex-col items-center justify-center p-4 bg-brand-surface border border-brand-border rounded-xl mb-6">
+                  <div className="relative flex items-center justify-center">
+                    {/* Simulated circle with simple ring styling */}
+                    <svg className="w-32 h-32 transform -rotate-90">
+                      <circle cx="64" cy="64" r="50" strokeWidth="8" stroke="#E5E0D8" fill="transparent" />
+                      <circle 
+                        cx="64" 
+                        cy="64" 
+                        r="50" 
+                        strokeWidth="8" 
+                        stroke="#5A5A40" 
+                        fill="transparent" 
+                        strokeDasharray="314"
+                        strokeDashoffset={314 - (314 * occupancyPercentage) / 100}
+                        className="transition-all duration-1000 ease-out"
                       />
+                    </svg>
+                    <div className="absolute flex flex-col items-center">
+                      <span className="text-2xl font-extrabold text-brand-dark font-mono">{occupancyPercentage}%</span>
+                      <span className="text-[10px] font-bold text-brand-stone uppercase tracking-wider">Occupancy</span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <p className="text-xs text-brand-secondary font-medium mt-4 text-center">
+                    {occupiedRooms} of {totalRooms} rooms allocated. 
+                  </p>
+                </div>
+              )}
 
-            {/* Quick Financial Overview mini panel */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-2.5 rounded-lg border border-brand-border text-xs">
-                <span className="text-brand-secondary font-medium">Contracted Monthly Rent</span>
-                <span className="font-bold text-brand-dark font-mono">€{totalRent.toLocaleString('en-IE', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex items-center justify-between p-2.5 rounded-lg border border-brand-border text-xs">
-                <span className="text-brand-secondary font-medium">Add-on Contract Revenue</span>
-                <span className="font-bold text-brand-primary font-mono">+€{totalAddonRevenue.toLocaleString('en-IE', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-brand-surface text-xs border border-brand-border text-brand-dark">
-                <span className="font-semibold">Gross Run-Rate</span>
-                <span className="font-extrabold text-brand-primary font-mono">€{(totalRent + totalAddonRevenue).toLocaleString('en-IE', { minimumFractionDigits: 2 })} /mo</span>
-              </div>
+              {/* Real-time Property Type Utilization Visualizer */}
+              {FEATURES.pmsOccupancyControls && (
+                <div className="mb-6 space-y-3.5 border-t border-brand-border/60 pt-5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-brand-stone uppercase tracking-wider">Utilization by Category</span>
+                    <span className="inline-flex items-center space-x-1 text-[10px] text-natural-orange font-bold font-mono">
+                      <span className="h-1.5 w-1.5 rounded-full bg-natural-orange animate-pulse" />
+                      <span>Real-time</span>
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {occupancyByType.map((type) => (
+                      <div 
+                        key={type.id} 
+                        className="space-y-1.5 bg-brand-bg p-2.5 rounded-xl border border-brand-border hover:border-natural-orange/30 transition-all duration-300 ease-in-out group"
+                      >
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-semibold text-brand-dark group-hover:text-natural-orange transition-colors">{type.name}</span>
+                          <span className="font-bold text-brand-stone font-mono text-[11px]">
+                            {type.occupied} <span className="text-brand-secondary/70 font-normal">/ {type.capacity}</span> <span className="text-[10px] text-brand-primary px-1 bg-brand-surface rounded font-bold">{type.percentage}%</span>
+                          </span>
+                        </div>
+                        {/* Progress Bar with modern sleekness */}
+                        <div className="w-full bg-brand-surface rounded-full h-1.5 overflow-hidden relative border border-brand-border/40">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                              type.id === 'coliving' ? 'bg-natural-olive' : type.id === 'apartment' ? 'bg-natural-orange' : 'bg-natural-sage'
+                            }`}
+                            style={{ width: `${type.percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Financial Overview mini panel */}
+              {FEATURES.financialMetrics && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg border border-brand-border text-xs">
+                    <span className="text-brand-secondary font-medium">Contracted Monthly Rent</span>
+                    <span className="font-bold text-brand-dark font-mono">€{totalRent.toLocaleString('en-IE', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg border border-brand-border text-xs">
+                    <span className="text-brand-secondary font-medium">Add-on Contract Revenue</span>
+                    <span className="font-bold text-brand-primary font-mono">+€{totalAddonRevenue.toLocaleString('en-IE', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-brand-surface text-xs border border-brand-border text-brand-dark">
+                    <span className="font-semibold">Gross Run-Rate</span>
+                    <span className="font-extrabold text-brand-primary font-mono">€{(totalRent + totalAddonRevenue).toLocaleString('en-IE', { minimumFractionDigits: 2 })} /mo</span>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {/* Replacement for Financial Dashboard: Staff Verification Checklist Overview Widget */}
+          {!FEATURES.financialMetrics && (
+            <div className="bg-white p-6 rounded-2xl border border-brand-border shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1.5 bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-200">
+                    <ClipboardCheck className="h-4 w-4" />
+                  </div>
+                  <h4 className="font-bold text-brand-dark text-sm font-serif">Staff Verification Overview</h4>
+                </div>
+                <Link
+                  href="/dashboard/verification"
+                  className="text-[11px] font-bold text-brand-primary hover:underline flex items-center space-x-1"
+                >
+                  <span>Open Matrix</span>
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
+
+              <p className="text-[11px] text-brand-secondary font-medium leading-relaxed">
+                Operational check-in &amp; move-out clearances verified by staff against PMS &amp; bank statements. Zero automatic financial calculations.
+              </p>
+
+              {/* Verification KPI metrics */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-2.5 bg-brand-surface rounded-xl border border-brand-border space-y-0.5">
+                  <span className="text-[10px] text-brand-stone font-bold uppercase">Rent Verified</span>
+                  <p className="text-base font-serif font-bold text-brand-dark">
+                    {tenants.filter(t => t.verificationChecklist?.rentReceived?.status === 'Approved').length} <span className="text-xs font-normal text-brand-stone font-sans">/ {tenants.length}</span>
+                  </p>
+                </div>
+                <div className="p-2.5 bg-brand-surface rounded-xl border border-brand-border space-y-0.5">
+                  <span className="text-[10px] text-brand-stone font-bold uppercase">Deposit Verified</span>
+                  <p className="text-base font-serif font-bold text-brand-dark">
+                    {tenants.filter(t => t.depositStatus === 'Paid' || t.verificationChecklist?.securityDeposit?.status === 'Approved').length} <span className="text-xs font-normal text-brand-stone font-sans">/ {tenants.length}</span>
+                  </p>
+                </div>
+                <div className="p-2.5 bg-brand-surface rounded-xl border border-brand-border space-y-0.5">
+                  <span className="text-[10px] text-brand-stone font-bold uppercase">Admin Fee</span>
+                  <p className="text-base font-serif font-bold text-brand-dark">
+                    {tenants.filter(t => t.verificationChecklist?.adminFee?.status === 'Approved').length} <span className="text-xs font-normal text-brand-stone font-sans">/ {tenants.length}</span>
+                  </p>
+                </div>
+                <div className="p-2.5 bg-brand-surface rounded-xl border border-brand-border space-y-0.5">
+                  <span className="text-[10px] text-brand-stone font-bold uppercase">Departures</span>
+                  <p className="text-base font-serif font-bold text-brand-dark">
+                    {tenants.filter(t => t.verificationChecklist?.finalDeparture?.status === 'Approved').length}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Link button */}
+              <Link
+                href="/dashboard/verification"
+                className="w-full py-2.5 bg-brand-surface hover:bg-brand-bg text-brand-primary text-xs font-bold rounded-xl border border-brand-border flex items-center justify-center space-x-1.5 transition-colors"
+              >
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                <span>Review Full Verification Checklist</span>
+              </Link>
+            </div>
+          )}
 
           {/* Quick Admin Policy Tips card */}
           <div className="bg-gradient-to-br from-[#5A5A40] to-[#3C3C2A] text-emerald-100 p-6 rounded-2xl border border-[#4A4A33] shadow-xs relative overflow-hidden">

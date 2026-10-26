@@ -408,20 +408,9 @@ export default function AddOnsView({
                             <Check className="h-3 w-3" />
                             <span>Approved</span>
                           </span>
-                          {req.paymentStatus === 'Paid' ? (
-                            <span className="text-[9px] text-emerald-800 font-extrabold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
-                              Paid {req.paymentChannel} ({req.paymentMethod})
-                            </span>
-                          ) : (
-                            <div className="flex items-center space-x-1 pt-0.5">
-                              <button
-                                onClick={() => handleMarkServicePaid(req)}
-                                className="px-2 py-0.5 bg-brand-surface hover:bg-[#E5E0D8] border border-brand-border text-brand-primary rounded text-[9.5px] font-bold cursor-pointer"
-                              >
-                                Mark Paid at Desk
-                              </button>
-                            </div>
-                          )}
+                          <span className="text-[9px] text-emerald-800 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            Passed to Billing Team (Next Monthly Invoice)
+                          </span>
                         </div>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold gap-1 bg-rose-50 text-rose-800 border border-rose-200">
