@@ -50,7 +50,7 @@ interface TenantsViewProps {
   onUpdateTenant: (updatedTenant: Tenant) => void;
   onDeleteTenant?: (tenantId: string) => void;
   onAddActivity: (type: 'tenant' | 'billing' | 'addon' | 'ticket' | 'notification', action: string, details: string) => void;
-  onOpenQuickAddTenant: () => void;
+  onOpenQuickAddTenant?: () => void;
   extensionRequests?: ContractExtensionRequest[];
   onApproveExtensionRequest?: (requestId: string) => void;
   onRejectExtensionRequest?: (requestId: string, notes?: string) => void;
@@ -81,9 +81,6 @@ export default function TenantsView({
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(tenants[0]?.id || null);
   const [expandedTenantId, setExpandedTenantId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [showExtensionModal, setShowExtensionModal] = useState(false);
-  const [extensionMonths, setExtensionMonths] = useState(3);
-  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const [sortRules, setSortRules] = useState<SortRule[]>([
     { column: 'name', direction: 'asc' }
@@ -220,7 +217,6 @@ export default function TenantsView({
   const [assignPropertyLocation, setAssignPropertyLocation] = useState('');
   const [assignStartDate, setAssignStartDate] = useState('');
   const [assignEndDate, setAssignEndDate] = useState('');
-  const [isEditingLease, setIsEditingLease] = useState(false);
 
   // Handover & Inventory Addition States
   const [newInvName, setNewInvName] = useState('');
@@ -237,7 +233,6 @@ export default function TenantsView({
       setAssignPropertyLocation(selected.propertyLocation || selected.building || '');
       setAssignStartDate(selected.contractStartDate || '2026-07-09');
       setAssignEndDate(selected.contractEndDate || '2027-01-09');
-      setIsEditingLease(false);
     }
   }, [selectedTenantId, tenants]);
 
@@ -389,60 +384,6 @@ export default function TenantsView({
   const getDepositRuleText = (months: number) => {
     if (months < 6) return "Short-stay (1.5x Rent Deposit)";
     return "Standard long-stay (2x Rent Deposit)";
-  };
-
-  // Handle contract extension
-  const handleExtendContract = () => {
-    if (!selectedTenant) return;
-    
-    const currentLength = selectedTenant.contractLengthMonths;
-    const newLength = currentLength + extensionMonths;
-    
-    // Calculate new end date based on original end date
-    const origEndDate = new Date(selectedTenant.contractEndDate);
-    origEndDate.setMonth(origEndDate.getMonth() + extensionMonths);
-    const newEndDateStr = origEndDate.toISOString().split('T')[0];
-
-    // Recompute deposit requirement based on new length only if automatic calculations enabled
-    const newDepositAmount = FEATURES.automaticFinancialCalculations 
-      ? selectedTenant.monthlyRent * (newLength < 6 ? 1.5 : 2)
-      : (selectedTenant.depositAmount || 0);
-
-    const updated: Tenant = {
-      ...selectedTenant,
-      contractLengthMonths: newLength,
-      contractEndDate: newEndDateStr,
-      depositAmount: newDepositAmount,
-    };
-
-    onUpdateTenant(updated);
-    onAddActivity(
-      'tenant', 
-      'Contract Extension Processed', 
-      `${selectedTenant.name} extended by ${extensionMonths} months. Total lease: ${newLength}m. Deposit requirement updated to €${newDepositAmount}.`
-    );
-    
-    setShowExtensionModal(false);
-  };
-
-  // Handle cancellation processing
-  const handleProcessCancellation = () => {
-    if (!selectedTenant) return;
-
-    const updated: Tenant = {
-      ...selectedTenant,
-      status: 'Checked-Out',
-      contractEndDate: new Date().toISOString().split('T')[0] // Set end date to today
-    };
-
-    onUpdateTenant(updated);
-    onAddActivity(
-      'tenant', 
-      'Resident Terminated Lease', 
-      `${selectedTenant.name} checked out from ${selectedTenant.roomNumber} (${selectedTenant.building}).`
-    );
-
-    setShowCancelModal(false);
   };
 
   // Toggle Extra Person Surcharge (€85/mo)
@@ -637,13 +578,6 @@ export default function TenantsView({
             >
               <Download className="h-3.5 w-3.5 text-natural-orange shrink-0" />
               <span>Export CSV</span>
-            </button>
-            <button 
-              onClick={onOpenQuickAddTenant}
-              className="px-4 py-2 bg-brand-surface text-brand-primary hover:bg-[#E5E0D8] border border-brand-border rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              <span>Add New Lease</span>
             </button>
           </div>
         </div>
@@ -1243,166 +1177,36 @@ export default function TenantsView({
                   }`}>
                     {selectedTenant.status}
                   </span>
-                  {selectedTenant.status !== 'Pending' && (
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingLease(!isEditingLease)}
-                      className="text-[10px] font-bold text-brand-primary hover:underline bg-transparent border-0 cursor-pointer"
-                    >
-                      {isEditingLease ? 'Cancel Edit' : 'Edit Lease'}
-                    </button>
-                  )}
                 </div>
               </div>
 
-              {isEditingLease ? (
-                /* Inline Lease Editor */
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  
-                  const checkinDate = new Date(assignStartDate);
-                  const checkoutDate = new Date(assignEndDate);
-                  
-                  if (checkoutDate.getTime() <= checkinDate.getTime()) {
-                    showToast('Check-out date must be after check-in date.', 'error');
-                    return;
-                  }
-
-                  const diffMs = checkoutDate.getTime() - checkinDate.getTime();
-                  const calculatedLength = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.4)));
-                  const calculatedDeposit = FEATURES.automaticFinancialCalculations
-                    ? selectedTenant.monthlyRent * (calculatedLength < 6 ? 1.5 : 2)
-                    : (selectedTenant.depositAmount || 0);
-
-                  const updated: Tenant = {
-                    ...selectedTenant,
-                    roomNumber: assignRoomNum.trim(),
-                    building: assignPropertyLocation.trim() || 'Berlin Mitte Central',
-                    propertyType: assignPropertyType,
-                    propertyLocation: assignPropertyLocation.trim(),
-                    contractStartDate: assignStartDate,
-                    contractEndDate: assignEndDate,
-                    contractLengthMonths: calculatedLength,
-                    depositAmount: calculatedDeposit
-                  };
-                  onUpdateTenant(updated);
-                  onAddActivity(
-                    'tenant',
-                    'Updated Lease Details',
-                    `Admin modified lease parameters for ${selectedTenant.name}: ${assignPropertyType} at ${assignPropertyLocation.trim() || 'Berlin Mitte Central'} (Unit: ${assignRoomNum.trim()}), dates: ${assignStartDate} to ${assignEndDate} (${calculatedLength} mo).`
-                  );
-                  setIsEditingLease(false);
-                  showToast(`Lease details updated for ${selectedTenant.name}!`);
-                }} className="space-y-3 bg-brand-surface/40 p-3.5 rounded-xl border border-brand-border text-xs">
-                  <span className="block text-[10px] font-bold text-brand-stone uppercase tracking-wider">Modify Lease Profile</span>
-                  
-                  <div className="grid grid-cols-2 gap-2 text-[10px]">
-                    <div className="space-y-1">
-                      <label className="block font-semibold text-brand-dark">Property Type</label>
-                      <select 
-                        value={assignPropertyType} 
-                        onChange={(e) => setAssignPropertyType(e.target.value)}
-                        className="w-full bg-white border border-brand-border rounded-lg p-1 text-[10px] text-brand-dark focus:outline-none"
-                      >
-                        <option value="Co-Living">Co-Living</option>
-                        <option value="Apartment">Apartment</option>
-                        <option value="Penthouse">Penthouse</option>
-                        <option value="Suite">Suite</option>
-                        <option value="Studio">Studio</option>
-                        <option value="Room">Room</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block font-semibold text-brand-dark">Property Location</label>
-                      <input 
-                        type="text" 
-                        value={assignPropertyLocation}
-                        onChange={(e) => setAssignPropertyLocation(e.target.value)}
-                        className="w-full bg-white border border-brand-border rounded-lg p-1 text-[10px] text-brand-dark focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-[10px]">
-                    <div className="space-y-1">
-                      <label className="block font-semibold text-brand-dark">Check-In Date</label>
-                      <input 
-                        type="date" 
-                        required
-                        value={assignStartDate}
-                        onChange={(e) => setAssignStartDate(e.target.value)}
-                        className="w-full bg-white border border-brand-border rounded-lg p-1 text-[10px] text-brand-dark focus:outline-none font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block font-semibold text-brand-dark">Check-Out Date</label>
-                      <input 
-                        type="date" 
-                        required
-                        value={assignEndDate}
-                        onChange={(e) => setAssignEndDate(e.target.value)}
-                        className="w-full bg-white border border-brand-border rounded-lg p-1 text-[10px] text-brand-dark focus:outline-none font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block font-semibold text-brand-dark">Suite / Room No.</label>
-                    <input 
-                      type="text" 
-                      required
-                      value={assignRoomNum}
-                      onChange={(e) => setAssignRoomNum(e.target.value)}
-                      className="w-full bg-white border border-brand-border rounded-lg p-1 text-[10px] text-brand-dark focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingLease(false)}
-                      className="flex-1 py-1.5 bg-white border border-brand-border hover:bg-brand-bg text-brand-secondary text-[10px] font-bold rounded-lg cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer"
-                    >
-                      Save Changes
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                /* Primary Contact & Lease Details Display */
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center space-x-2 text-xs text-brand-secondary">
-                    <Mail className="h-3.5 w-3.5 text-brand-stone" />
-                    <span className="font-medium">{selectedTenant.email}</span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-xs text-brand-secondary">
-                    <Phone className="h-3.5 w-3.5 text-brand-stone" />
-                    <span className="font-medium font-mono">{selectedTenant.phone}</span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-xs text-brand-secondary">
-                    <MapPin className="h-3.5 w-3.5 text-brand-stone" />
-                    <span className="font-semibold text-brand-dark">{selectedTenant.roomNumber || 'No unit assigned'}</span>
-                    <span className="text-[10px] text-brand-stone font-medium">
-                      ({selectedTenant.propertyType || 'Co-Living'} • {selectedTenant.propertyLocation || selectedTenant.building})
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-xs text-brand-secondary">
-                    <Calendar className="h-3.5 w-3.5 text-brand-stone" />
-                    <span className="font-semibold text-brand-dark">
-                      {selectedTenant.contractStartDate} to {selectedTenant.contractEndDate}
-                    </span>
-                    <span className="text-[10px] text-brand-stone font-medium">
-                      ({selectedTenant.contractLengthMonths} mo)
-                    </span>
-                  </div>
+              {/* Primary Contact & Lease Details Display */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center space-x-2 text-xs text-brand-secondary">
+                  <Mail className="h-3.5 w-3.5 text-brand-stone" />
+                  <span className="font-medium">{selectedTenant.email}</span>
                 </div>
-              )}
+                <div className="flex items-center space-x-2 text-xs text-brand-secondary">
+                  <Phone className="h-3.5 w-3.5 text-brand-stone" />
+                  <span className="font-medium font-mono">{selectedTenant.phone}</span>
+                </div>
+                <div className="flex items-center space-x-2 text-xs text-brand-secondary">
+                  <MapPin className="h-3.5 w-3.5 text-brand-stone" />
+                  <span className="font-semibold text-brand-dark">{selectedTenant.roomNumber || 'No unit assigned'}</span>
+                  <span className="text-[10px] text-brand-stone font-medium">
+                    ({selectedTenant.propertyType || 'Co-Living'} • {selectedTenant.propertyLocation || selectedTenant.building})
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2 text-xs text-brand-secondary">
+                  <Calendar className="h-3.5 w-3.5 text-brand-stone" />
+                  <span className="font-semibold text-brand-dark">
+                    {selectedTenant.contractStartDate} to {selectedTenant.contractEndDate}
+                  </span>
+                  <span className="text-[10px] text-brand-stone font-medium">
+                    ({selectedTenant.contractLengthMonths} mo)
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Interactive Document & Contract Vault */}
@@ -2041,20 +1845,17 @@ export default function TenantsView({
               </div>
             </div>
 
-            {/* Footer Action Buttons */}
-            <div className="grid grid-cols-2 gap-3 pt-4 border-t border-brand-border">
-              <button
-                onClick={() => setShowExtensionModal(true)}
-                className="py-2.5 bg-brand-primary hover:bg-[#4E4E37] text-white rounded-xl text-xs font-bold transition-colors text-center cursor-pointer"
-              >
-                Contract Extension
-              </button>
-              <button
-                onClick={() => setShowCancelModal(true)}
-                className="py-2.5 bg-white hover:bg-rose-50 border border-brand-border text-rose-600 hover:border-rose-200 rounded-xl text-xs font-bold transition-colors text-center cursor-pointer"
-              >
-                Initiate Cancel
-              </button>
+            {/* Restricted Direct Modification Notice Banner */}
+            <div className="pt-4 border-t border-brand-border">
+              <div className="p-3.5 bg-brand-surface/60 rounded-xl border border-brand-border flex items-start space-x-3 text-xs">
+                <AlertCircle className="h-4 w-4 text-brand-stone shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-brand-dark">Direct Lease Changes Restricted</p>
+                  <p className="text-[11px] text-brand-secondary leading-relaxed">
+                    Contract modifications, stay extensions, and lease terminations cannot be initiated directly. Residents must submit formal extension requests or departure notices through support tickets or the resident portal for administrative review.
+                  </p>
+                </div>
+              </div>
             </div>
 
           </div>
@@ -2064,144 +1865,6 @@ export default function TenantsView({
           </div>
         )}
       </div>
-
-      {/* Contract Extension Modal Dialog */}
-      {showExtensionModal && selectedTenant && (
-        <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl border border-slate-100 max-w-md w-full p-6 space-y-6 shadow-2xl animate-scale-up">
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="font-bold text-slate-800 text-base">Extend Co-Living Agreement</h3>
-                <p className="text-xs text-slate-400">Resident: {selectedTenant.name}</p>
-              </div>
-              <button 
-                onClick={() => setShowExtensionModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Current Lease Length</span>
-                  <strong className="text-slate-700">{selectedTenant.contractLengthMonths} Months</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Expirations Schedule</span>
-                  <strong className="text-slate-700">{selectedTenant.contractEndDate}</strong>
-                </div>
-              </div>
-
-              {/* Slider / Extension Period */}
-              <div className="space-y-2">
-                <label className="block font-bold text-brand-dark">Select Extension Duration</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[1, 3, 6, 12].map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setExtensionMonths(m)}
-                      className={`py-2 rounded-xl border text-xs font-bold transition-colors ${
-                        extensionMonths === m
-                          ? 'bg-brand-primary border-brand-primary text-white'
-                          : 'bg-white border-brand-border text-brand-secondary hover:bg-brand-bg'
-                      }`}
-                    >
-                      +{m} Mon
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Auto calculated deposit preview */}
-              <div className="p-3 bg-brand-surface text-brand-dark rounded-xl border border-brand-border space-y-1.5">
-                <div className="flex items-center gap-1.5 font-bold text-brand-primary font-serif italic">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>Dynamic Security Deposit Recalculation</span>
-                </div>
-                <p className="leading-relaxed text-[11px] text-brand-secondary">
-                  Stays under 6 months default to a 1.5x rent deposit, while stays 6 months or longer update to 2x rent deposit.
-                </p>
-                <div className="pt-1.5 border-t border-brand-border flex justify-between font-semibold text-xs">
-                  <span>New Total Lease length</span>
-                  <span>{selectedTenant.contractLengthMonths + extensionMonths} Months</span>
-                </div>
-                {FEATURES.automaticFinancialCalculations && (
-                  <div className="flex justify-between font-extrabold text-brand-primary text-[13px] font-mono">
-                    <span>New Deposit Requirement</span>
-                    <span>
-                      €{((selectedTenant.contractLengthMonths + extensionMonths) < 6 
-                        ? selectedTenant.monthlyRent * 1.5 
-                        : selectedTenant.monthlyRent * 2).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex space-x-3 pt-2">
-              <button
-                onClick={() => setShowExtensionModal(false)}
-                className="flex-1 py-2.5 bg-brand-surface hover:bg-brand-bg border border-brand-border text-brand-secondary rounded-xl text-xs font-bold transition-colors"
-              >
-                Dismiss
-              </button>
-              <button
-                onClick={handleExtendContract}
-                className="flex-1 py-2.5 bg-brand-primary hover:bg-[#4E4E37] text-white rounded-xl text-xs font-bold transition-colors"
-              >
-                Commit Extension
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cancellation Modal Dialog */}
-      {showCancelModal && selectedTenant && (
-        <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl border border-brand-border max-w-sm w-full p-6 space-y-5 shadow-2xl animate-scale-up">
-            <div className="flex justify-between items-start">
-              <div className="flex items-center space-x-2 text-rose-700">
-                <AlertCircle className="h-5 w-5 shrink-0" />
-                <h3 className="font-bold text-brand-dark text-base font-serif">Terminate Lease Agreement</h3>
-              </div>
-              <button 
-                onClick={() => setShowCancelModal(false)}
-                className="text-brand-stone hover:text-brand-dark"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-brand-secondary leading-relaxed">
-              Are you sure you want to trigger immediate cancellation check-out protocols for <strong className="text-brand-dark">{selectedTenant.name}</strong>? 
-              This will set their status to <strong className="text-brand-dark">"Checked-Out"</strong> effective today and trigger deposit refund status review.
-            </p>
-
-            <div className="bg-brand-surface text-brand-dark border border-brand-border p-3 rounded-xl text-[11px] leading-relaxed">
-              <strong>Check-out Notice:</strong> Ensure the room has been inspected for damages and that active add-on keys or tags have been physically returned before processing the refund status.
-            </div>
-
-            <div className="flex space-x-3">
-              <button
-                onClick={() => setShowCancelModal(false)}
-                className="flex-1 py-2.5 bg-brand-surface hover:bg-brand-bg border border-brand-border text-brand-secondary rounded-xl text-xs font-bold transition-colors"
-              >
-                Dismiss
-              </button>
-              <button
-                onClick={handleProcessCancellation}
-                className="flex-1 py-2.5 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-colors"
-              >
-                Confirm Check-Out
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Document Vault Modal Dialog */}
       {activePreviewDoc && selectedTenant && (

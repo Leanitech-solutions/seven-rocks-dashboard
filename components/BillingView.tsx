@@ -71,6 +71,7 @@ export default function BillingView({
   const [formRentAmount, setFormRentAmount] = useState(1200);
   const [formDepositAmount, setFormDepositAmount] = useState(0);
   const [formAdminFee, setFormAdminFee] = useState(0);
+  const [formVatAmount, setFormVatAmount] = useState(0);
 
   // Third-party Invoice upload form states
   const [showUploadInvoiceModal, setShowUploadInvoiceModal] = useState(false);
@@ -345,8 +346,8 @@ export default function BillingView({
     const extraSurcharge = tenant.hasExtraPerson ? 85.00 : 0;
     
     const subtotal = formRentAmount + extraSurcharge + Number(formAddonTotal) + Number(formDepositAmount) + Number(formAdminFee);
-    const vatRate = 10; // standard housing rate
-    const vatAmount = subtotal * (vatRate / 100);
+    const vatAmount = Number(formVatAmount) || 0;
+    const vatRate = subtotal > 0 && vatAmount > 0 ? Number(((vatAmount / subtotal) * 100).toFixed(1)) : 0;
     const totalAmount = subtotal + vatAmount;
 
     const newInvoice: Invoice = {
@@ -373,10 +374,11 @@ export default function BillingView({
     onAddActivity(
       'billing',
       'Generated Manual Invoice',
-      `Invoice ${newInvoice.id} generated for ${tenant.name}. Total billed: €${totalAmount.toFixed(2)} (VAT included).`
+      `Invoice ${newInvoice.id} generated for ${tenant.name}. Total billed: €${totalAmount.toFixed(2)}${vatAmount > 0 ? ` (€${vatAmount.toFixed(2)} tax)` : ''}.`
     );
 
     setShowAddInvoiceModal(false);
+    setFormVatAmount(0);
   };
 
   const handleUploadInvoice = (e: FormEvent) => {
@@ -391,10 +393,10 @@ export default function BillingView({
 
     const priceVal = parseFloat(uploadPrice) || 0;
     
-    // Subtotal and VAT calculations
-    const vatRate = 10;
-    const subtotal = priceVal / (1 + vatRate / 100);
-    const vatAmount = priceVal - subtotal;
+    // Subtotal and tax figures (manual / standard without auto VAT split)
+    const vatRate = 0;
+    const subtotal = priceVal;
+    const vatAmount = 0;
 
     const newInvoice: Invoice = {
       id: uploadInvoiceNumber.trim(),
@@ -618,19 +620,19 @@ export default function BillingView({
           </div>
         </div>
 
-        {/* KPI 3: Occupancy Run-rate alert */}
+        {/* KPI 3: Billing & Settlement */}
         <div className="relative">
           {/* Solid shadow layer as a background */}
           <div className="absolute inset-0 bg-brand-primary/10 rounded-2xl translate-x-1.5 translate-y-1.5"></div>
           
           <div className="relative bg-brand-surface text-brand-dark p-6 rounded-2xl border border-brand-stone/60 flex items-center space-x-4 h-full">
             <div className="p-3.5 rounded-xl bg-brand-bg text-brand-primary border border-brand-stone/30">
-              <Coins className="h-6 w-6" />
+              <CreditCard className="h-6 w-6" />
             </div>
             <div className="space-y-0.5">
-              <p className="text-[10px] uppercase font-bold text-brand-stone tracking-wider">Seven Rocks Fiscal Efficiency</p>
-              <h4 className="text-sm font-bold text-natural-dark-olive font-serif">VAT Compliance Rate: 10%</h4>
-              <p className="text-[10px] text-brand-secondary font-medium">Residential rents fall under reduced 10% rate tier.</p>
+              <p className="text-[10px] uppercase font-bold text-brand-stone tracking-wider">Seven Rocks Settlement Model</p>
+              <h4 className="text-sm font-bold text-natural-dark-olive font-serif">Manual Billing & Settlement</h4>
+              <p className="text-[10px] text-brand-secondary font-medium">Standard settlement via desk POS terminal or direct monthly billing.</p>
             </div>
           </div>
         </div>
@@ -775,7 +777,7 @@ export default function BillingView({
                       >
                         <option value="tenantName">Invoice / Resident</option>
                         <option value="date">Issue Date</option>
-                        <option value="vatAmount">Tax (10% VAT)</option>
+                        <option value="vatAmount">Tax / VAT</option>
                         <option value="totalAmount">Total Amount</option>
                         <option value="status">Status</option>
                       </select>
@@ -904,7 +906,7 @@ export default function BillingView({
                 <tr className="bg-brand-surface border-b border-brand-border">
                   {renderSortableHeader('tenantName', 'Invoice / Resident')}
                   {renderSortableHeader('date', 'Issue Date')}
-                  {renderSortableHeader('vatAmount', 'Tax (10% VAT)')}
+                  {renderSortableHeader('vatAmount', 'Tax / VAT')}
                   {renderSortableHeader('totalAmount', 'Total Amount')}
                   {renderSortableHeader('status', 'Status')}
                   <th className="px-6 py-4 whitespace-nowrap text-right text-xs font-bold text-brand-stone uppercase tracking-wider">Detail</th>
@@ -1297,15 +1299,17 @@ export default function BillingView({
               {/* Financial calculations */}
               <div className="pt-3 border-t border-brand-border space-y-1.5 text-xs bg-brand-surface p-3 rounded-xl border border-brand-border">
                 <div className="flex justify-between">
-                  <span className="text-brand-secondary font-semibold">Subtotal (Excl. VAT)</span>
+                  <span className="text-brand-secondary font-semibold">Subtotal</span>
                   <span className="font-bold text-brand-dark font-mono">€{(selectedInvoice.subtotal ?? 0).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-brand-secondary">
-                  <span>Standard VAT (10%)</span>
-                  <span className="font-semibold font-mono">€{(selectedInvoice.vatAmount ?? 0).toFixed(2)}</span>
-                </div>
+                {(selectedInvoice.vatAmount ?? 0) > 0 && (
+                  <div className="flex justify-between text-brand-secondary">
+                    <span>Tax / VAT {selectedInvoice.vatRate ? `(${selectedInvoice.vatRate}%)` : ''}</span>
+                    <span className="font-semibold font-mono">€{(selectedInvoice.vatAmount ?? 0).toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="pt-2 border-t border-brand-border flex justify-between font-extrabold text-brand-dark text-[13px]">
-                  <span>Total Due (VAT Incl.)</span>
+                  <span>Total Due</span>
                   <span className="font-mono">€{(selectedInvoice.totalAmount ?? 0).toFixed(2)}</span>
                 </div>
               </div>
@@ -1363,7 +1367,7 @@ export default function BillingView({
             </div>
           ) : (
             <div className="bg-brand-surface border-2 border-dashed border-brand-border rounded-2xl p-12 text-center text-brand-stone text-xs">
-              Select an invoice to review VAT, surcharge, move-in fees, and settle accounts.
+              Select an invoice to review itemized charges, surcharge, move-in fees, and settle accounts.
             </div>
           )}
         </div>
@@ -1445,9 +1449,29 @@ export default function BillingView({
                 </div>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="block font-bold text-brand-stone">Tax / VAT (€) <span className="font-normal text-brand-stone/70">(Optional, manual entry)</span></label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={formVatAmount || ''}
+                  onChange={(e) => setFormVatAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-full bg-brand-surface border border-brand-border rounded-lg p-2.5 font-semibold font-mono text-brand-dark focus:ring-1 focus:ring-brand-primary focus:outline-none placeholder-brand-stone/50"
+                />
+              </div>
+
               <div className="bg-brand-surface p-3 rounded-xl border border-brand-border space-y-1 text-brand-secondary leading-normal">
-                <span className="font-bold text-brand-dark block text-[11px] font-serif">Dynamic Calculations:</span>
-                <p>Reduced housing VAT rate of <strong className="text-brand-dark">10%</strong> is automatically calculated on top of subtotal sum and listed as itemized tax ledger.</p>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-brand-dark font-serif">Total Statement Amount:</span>
+                  <span className="font-extrabold text-brand-dark font-mono text-sm">
+                    €{(formRentAmount + (tenants.find(t => t.id === formTenantId)?.hasExtraPerson ? 85 : 0) + Number(formAddonTotal) + Number(formDepositAmount) + Number(formAdminFee) + Number(formVatAmount)).toFixed(2)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-brand-stone mt-1">
+                  Manual figures entered by staff. No automatic VAT is calculated or applied.
+                </p>
               </div>
 
               <div className="flex space-x-3 pt-2">

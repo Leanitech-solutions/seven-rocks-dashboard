@@ -17,7 +17,8 @@ import {
   ShoppingBag,
   Plus,
   Trash2,
-  Download
+  Download,
+  CreditCard
 } from 'lucide-react';
 import { AddOnRequest, Tenant, AddOnService } from '../types';
 
@@ -399,18 +400,36 @@ export default function AddOnsView({
                             className="px-3.5 py-2 bg-brand-primary hover:bg-[#4E4E37] text-white text-xs font-bold rounded-lg flex items-center space-x-1.5 transition-colors cursor-pointer"
                           >
                             <Check className="h-3.5 w-3.5" />
-                            <span>Approve Subscription</span>
+                            <span>Approve Request</span>
                           </button>
                         </>
                       ) : req.status === 'Approved' ? (
-                        <div className="flex flex-col items-end space-y-1">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-surface text-brand-primary border border-brand-border gap-1">
-                            <Check className="h-3 w-3" />
-                            <span>Approved</span>
-                          </span>
-                          <span className="text-[9px] text-emerald-800 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                            Passed to Billing Team (Next Monthly Invoice)
-                          </span>
+                        <div className="flex flex-col items-end space-y-1.5">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-surface text-brand-primary border border-brand-border gap-1">
+                              <Check className="h-3 w-3" />
+                              <span>Approved</span>
+                            </span>
+                            {req.paymentStatus === 'Paid' ? (
+                              <span className="text-[9px] text-emerald-800 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 font-mono">
+                                Paid ({req.paymentChannel || 'Desk'} POS)
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleMarkServicePaid(req)}
+                                className="px-2.5 py-0.5 bg-brand-surface hover:bg-[#E5E0D8] border border-brand-border text-brand-primary rounded-md text-[9.5px] font-bold cursor-pointer transition-colors flex items-center gap-1"
+                                title="Mark paid via POS desk terminal"
+                              >
+                                <CreditCard className="h-3 w-3 text-brand-primary" />
+                                <span>Mark Paid at Desk</span>
+                              </button>
+                            )}
+                          </div>
+                          {req.paymentStatus !== 'Paid' && (
+                            <span className="text-[9px] text-emerald-800 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              Passed to Billing Team (Next Monthly Invoice)
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold gap-1 bg-rose-50 text-rose-800 border border-rose-200">
@@ -436,29 +455,29 @@ export default function AddOnsView({
             <div className="space-y-4">
               <div className="flex items-center space-x-2 text-brand-primary">
                 <ShoppingBag className="h-5 w-5 text-brand-primary" />
-                <h4 className="font-bold text-natural-dark-olive text-sm font-serif">Services Billing Rules</h4>
+                <h4 className="font-bold text-natural-dark-olive text-sm font-serif">Services Billing Policy</h4>
               </div>
               <p className="text-xs text-brand-secondary leading-relaxed font-medium">
-                When you approve services, Seven Rocks automatically appends the charges to the next generated monthly invoice.
+                Standard procedure for resident amenity requests, approval workflow, and payment settlement.
               </p>
               
               <div className="divide-y divide-brand-border text-[11px] leading-relaxed">
                 <div className="py-2.5 space-y-1">
-                  <span className="text-brand-dark font-bold block font-serif">Fitness & Wellness Passes</span>
+                  <span className="text-brand-dark font-bold block font-serif">Clear Catalog Pricing</span>
                   <p className="text-brand-stone font-medium">
-                    Combo pass rates is billed monthly recurring until cancellation is requested.
+                    All add-on services and equipment kits feature fixed, verified catalog prices and tier options for transparent resident selection.
                   </p>
                 </div>
                 <div className="py-2.5 space-y-1">
-                  <span className="text-brand-dark font-bold block font-serif">Kitchen Kits</span>
+                  <span className="text-brand-dark font-bold block font-serif">Staff Approval Workflow</span>
                   <p className="text-brand-stone font-medium">
-                    Billed as monthly lease charges (€28 or €68). Verify kit delivery signature manually.
+                    Staff review each incoming resident request in the queue to either approve or reject before service delivery.
                   </p>
                 </div>
                 <div className="py-2.5 space-y-1">
-                  <span className="text-brand-dark font-bold block font-serif">One-time Requests</span>
+                  <span className="text-brand-dark font-bold block font-serif">Payment & Settlement</span>
                   <p className="text-brand-stone font-medium">
-                    E.g. Airport Transfers are appended as single itemized chargers with standard 10% VAT.
+                    After approval, the guest either pays through the existing POS (desk terminal) or the charge is passed to the billing team for the next monthly invoice.
                   </p>
                 </div>
               </div>
@@ -466,7 +485,7 @@ export default function AddOnsView({
 
             <div className="bg-brand-bg p-3 rounded-xl border border-brand-border flex items-center gap-2 text-[10px] text-brand-secondary mt-6 font-semibold">
               <ShieldAlert className="h-4 w-4 text-brand-primary shrink-0" />
-              <span>Approved items instantly populate tenant profiles.</span>
+              <span>Approved items update tenant records and billing status.</span>
             </div>
           </div>
         </div>
