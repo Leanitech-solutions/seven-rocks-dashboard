@@ -28,8 +28,26 @@ import {
   X,
   Camera,
   Clock,
-  Bell
+  Bell,
+  CookingPot,
+  WashingMachine,
+  Compass,
+  ShoppingBag,
+  ChevronRight,
+  Eye,
+  Printer,
+  Download
 } from 'lucide-react';
+import { OFFICIAL_COMPANY_DETAILS } from './DocumentGeneratorView';
+
+const ICON_MAP = {
+  Dumbbell,
+  Sparkles,
+  CookingPot,
+  WashingMachine,
+  Compass,
+  ShoppingBag
+};
 import { 
   Tenant, 
   AddOnRequest, 
@@ -92,7 +110,7 @@ export default function ResidentPortal({
 }: ResidentPortalProps) {
   const { showToast, ToastElement } = useToast();
   const { confirmDialog, DialogElement } = useDialog();
-  const [activeTab, setActiveTab] = useState<'overview' | 'addons' | 'housekeeping' | 'billing' | 'support' | 'policies'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'addons' | 'housekeeping' | 'invoices' | 'billing' | 'support' | 'policies'>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // --- Login Alert Notification state ---
@@ -109,7 +127,7 @@ export default function ResidentPortal({
   const [selectedInspectionImage, setSelectedInspectionImage] = useState<string | null>(null);
 
   // --- Add-ons request form states ---
-  const [selectedAddOnId, setSelectedAddOnId] = useState<string>('cat-fit-1');
+  const [activeCatalogTab, setActiveCatalogTab] = useState<'all' | 'fitness' | 'kits' | 'utilities' | 'other'>('all');
   const [confirmAddOnItem, setConfirmAddOnItem] = useState<any | null>(null);
 
   // --- Housekeeping request form states ---
@@ -131,6 +149,7 @@ export default function ResidentPortal({
   // --- Desk payment modal ---
   const [checkoutInvoice, setCheckoutInvoice] = useState<Invoice | null>(null);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
 
   // Early departure modal
   const [showDepartureModal, setShowDepartureModal] = useState(false);
@@ -139,6 +158,25 @@ export default function ResidentPortal({
 
   // Dynamic pricing catalogs (prepopulated with passed list)
   const CATALOG_ITEMS = catalogItems.length > 0 ? catalogItems : [];
+
+  const filteredCatalog = CATALOG_ITEMS.filter(item => {
+    if (activeCatalogTab === 'all') return true;
+    const cat = (item.category || '').toLowerCase();
+    const name = (item.name || '').toLowerCase();
+    if (activeCatalogTab === 'fitness') {
+      return cat === 'fitness' || name.includes('fitness') || name.includes('wellness') || name.includes('gym');
+    }
+    if (activeCatalogTab === 'kits') {
+      return cat === 'kits' || name.includes('kit') || name.includes('textile') || name.includes('kitchen');
+    }
+    if (activeCatalogTab === 'utilities') {
+      return cat === 'utilities' || name.includes('laundry') || name.includes('clean') || name.includes('utilit');
+    }
+    if (activeCatalogTab === 'other') {
+      return cat === 'other' || (!name.includes('fitness') && !name.includes('wellness') && !name.includes('gym') && !name.includes('kit') && !name.includes('kitchen') && !name.includes('textile') && !name.includes('laundry') && !name.includes('clean') && !name.includes('utilit'));
+    }
+    return cat === activeCatalogTab;
+  });
 
   // Helper trigger success alert
   const triggerSuccess = (msg: string) => {
@@ -240,15 +278,20 @@ export default function ResidentPortal({
 
   const handleOpenConfirmModal = (item: any) => {
     // Check if tenant already has this add-on active
-    const formatStr = `${item.name} (${item.price})`;
-    if (tenant.activeAddOns.includes(formatStr)) {
+    const isSubscribed = tenant.activeAddOns?.some(addonStr => {
+      const nameOnly = addonStr.split(' (')[0].trim().toLowerCase();
+      return nameOnly === item.name.toLowerCase() || addonStr.toLowerCase().includes(item.name.toLowerCase());
+    });
+    if (isSubscribed) {
       showToast(`You already have an active subscription to ${item.name}.`, 'info');
       return;
     }
 
     // Check if there is already a pending request for this item
     const hasPending = addOnRequests.some(
-      r => r.tenantId === tenant.id && r.serviceName === item.name && r.status === 'Pending'
+      r => (r.tenantId === tenant.id || r.tenantName === tenant.name) &&
+           r.serviceName?.toLowerCase() === item.name.toLowerCase() &&
+           r.status === 'Pending'
     );
     if (hasPending) {
       showToast(`You already have a pending request for ${item.name} awaiting approval.`, 'info');
@@ -273,8 +316,8 @@ export default function ResidentPortal({
                 item.category === 'kits' ? 'Equipment Kits' : 
                 item.category === 'utilities' ? 'Utilities' : 'Other',
       serviceName: item.name,
-      priceDetails: item.price || String(item.priceVal),
-      priceValue: item.priceVal,
+      priceDetails: item.price || (item.priceVal ? `€${item.priceVal}` : ''),
+      priceValue: typeof item.priceVal === 'number' ? item.priceVal : (Number(String(item.price).replace(/[^0-9.]/g, '')) || 0),
       requestDate: new Date().toISOString().split('T')[0],
       status: 'Pending',
       paymentOption: FEATURES.residentBilling ? 'Request Invoice (Pay at Desk)' : 'Monthly Statement Billing'
@@ -524,19 +567,19 @@ export default function ResidentPortal({
             >
               Housekeeping
             </button>
-            {FEATURES.residentBilling && (
-              <button
-                onClick={() => setActiveTab('billing')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold relative transition-all cursor-pointer ${
-                  activeTab === 'billing' ? 'bg-brand-primary text-white' : 'text-brand-secondary hover:text-brand-dark'
-                }`}
-              >
-                <span>Billing</span>
-                {pendingInvoices.length > 0 && (
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
-                )}
-              </button>
-            )}
+            <button
+              onClick={() => setActiveTab('invoices')}
+              className={`px-4 py-2 rounded-lg text-xs font-bold relative transition-all cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'invoices' || activeTab === 'billing' ? 'bg-brand-primary text-white' : 'text-brand-secondary hover:text-brand-dark'
+              }`}
+            >
+              <span>Invoices</span>
+              {pendingInvoices.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-extrabold">
+                  {pendingInvoices.length}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setActiveTab('support')}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -547,12 +590,11 @@ export default function ResidentPortal({
             </button>
             <button
               onClick={() => setActiveTab('policies')}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1 ${
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'policies' ? 'bg-brand-primary text-white' : 'text-brand-secondary hover:text-brand-dark'
               }`}
             >
-              <FileText className="h-3.5 w-3.5" />
-              <span>Terms & Policies</span>
+              Terms & Policies
             </button>
           </div>
         )}
@@ -610,68 +652,60 @@ export default function ResidentPortal({
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
               <button
                 onClick={() => { setActiveTab('overview'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'overview' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
                 }`}
               >
-                <Building2 className="h-4 w-4" />
                 <span>Dashboard Overview</span>
               </button>
 
               <button
                 onClick={() => { setActiveTab('addons'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'addons' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
                 }`}
               >
-                <Sparkles className="h-4 w-4" />
                 <span>Add-ons</span>
               </button>
 
               <button
                 onClick={() => { setActiveTab('housekeeping'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'housekeeping' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
                 }`}
               >
-                <Brush className="h-4 w-4" />
                 <span>Housekeeping</span>
               </button>
 
-              {FEATURES.residentBilling && (
-                <button
-                  onClick={() => { setActiveTab('billing'); setMobileMenuOpen(false); }}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'billing' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <Receipt className="h-4 w-4" />
-                    <span>Billing & Invoices</span>
-                  </div>
-                  {pendingInvoices.length > 0 && (
-                    <span className="h-2 w-2 rounded-full bg-rose-500" />
-                  )}
-                </button>
-              )}
+              <button
+                onClick={() => { setActiveTab('invoices'); setMobileMenuOpen(false); }}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'invoices' || activeTab === 'billing' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
+                }`}
+              >
+                <span>Invoices</span>
+                {pendingInvoices.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white">
+                    {pendingInvoices.length} Due
+                  </span>
+                )}
+              </button>
 
               <button
                 onClick={() => { setActiveTab('support'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'support' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
                 }`}
               >
-                <Wrench className="h-4 w-4" />
                 <span>Support Tickets</span>
               </button>
 
               <button
                 onClick={() => { setActiveTab('policies'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'policies' ? 'bg-brand-surface text-brand-primary border border-brand-border' : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-dark'
                 }`}
               >
-                <FileText className="h-4 w-4" />
                 <span>Terms & Policies</span>
               </button>
             </nav>
@@ -1272,36 +1306,43 @@ export default function ResidentPortal({
               <div className="lg:col-span-1 space-y-6">
                 
                 {/* Financial Overview outstanding card */}
-                {FEATURES.residentBilling && (
-                  <div className="bg-brand-surface border border-brand-border p-6 rounded-2xl space-y-3.5">
+                <div className="bg-brand-surface border border-brand-border p-6 rounded-2xl space-y-3.5">
+                  <div className="flex items-center justify-between">
                     <span className="text-[10px] text-brand-stone font-bold uppercase tracking-wider block">Financial Summary</span>
-                    <div className="flex justify-between items-baseline">
-                      <h5 className="text-xs text-brand-secondary font-medium">Active Account Balance:</h5>
-                      <span className="text-xl font-mono font-extrabold text-brand-dark">
-                        €{totalOutstanding.toLocaleString('en-IE', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    {pendingInvoices.length > 0 ? (
-                      <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] leading-relaxed flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <span className="block text-amber-800 font-bold">Pending Statements</span>
-                          <p className="text-brand-stone">You have {pendingInvoices.length} outstanding invoice(s).</p>
-                        </div>
-                        <button 
-                          onClick={() => setActiveTab('billing')}
-                          className="px-2.5 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white font-bold rounded-lg text-[9.5px]"
-                        >
-                          Settle Now
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] text-brand-primary font-semibold flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        <span>Lease fully paid & in compliance.</span>
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('invoices')}
+                      className="text-[10px] font-bold text-brand-primary hover:underline"
+                    >
+                      View Invoices →
+                    </button>
                   </div>
-                )}
+                  <div className="flex justify-between items-baseline">
+                    <h5 className="text-xs text-brand-secondary font-medium">Active Account Balance:</h5>
+                    <span className="text-xl font-mono font-extrabold text-brand-dark">
+                      €{totalOutstanding.toLocaleString('en-IE', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  {pendingInvoices.length > 0 ? (
+                    <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] leading-relaxed flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="block text-amber-800 font-bold">Pending Invoices</span>
+                        <p className="text-brand-stone">You have {pendingInvoices.length} outstanding invoice(s).</p>
+                      </div>
+                      <button 
+                        onClick={() => setActiveTab('invoices')}
+                        className="px-2.5 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white font-bold rounded-lg text-[9.5px] cursor-pointer"
+                      >
+                        Settle Now
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-white border border-brand-border rounded-xl text-[10.5px] text-brand-primary font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Lease fully paid & in compliance.</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Notifications & Announcements */}
                 <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs space-y-4">
@@ -1340,7 +1381,7 @@ export default function ResidentPortal({
         {activeTab === 'addons' && (
           <div className="space-y-6 animate-fade-in">
             
-            <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs flex flex-col md:flex-row gap-6 justify-between items-start">
+            <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
               <div>
                 <h3 className="text-lg font-serif italic text-brand-dark font-bold">Elevate Your Living Experience</h3>
                 <p className="text-xs text-brand-secondary leading-relaxed max-w-xl">
@@ -1348,43 +1389,169 @@ export default function ResidentPortal({
                   Request an invoice for any service add-on and pay directly at the front desk.
                 </p>
               </div>
-
-              {/* Request form inline */}
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const item = CATALOG_ITEMS.find(c => c.id === selectedAddOnId);
-                  if (item) {
-                    handleOpenConfirmModal(item);
-                  }
-                }} 
-                className="bg-brand-surface p-4 border border-brand-border rounded-xl text-xs flex items-end gap-3.5 w-full md:w-auto shrink-0"
-              >
-                <div className="space-y-1.5 flex-1 md:flex-initial">
-                  <label className="block font-bold text-brand-secondary">Select Service Option</label>
-                  <select
-                    value={selectedAddOnId}
-                    onChange={(e) => setSelectedAddOnId(e.target.value)}
-                    className="bg-white border border-brand-border rounded-lg p-2.5 text-brand-dark focus:outline-none w-full md:w-56 font-bold"
-                  >
-                    {CATALOG_ITEMS.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} ({item.price})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  type="submit"
-                  className="px-4 py-2.5 bg-brand-primary hover:bg-[#4E4E37] text-white font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shrink-0"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Request Upgrade</span>
-                </button>
-              </form>
+              <div className="flex items-center space-x-2 bg-brand-surface px-3 py-1.5 rounded-xl border border-brand-border text-[11px] font-semibold text-brand-secondary shrink-0">
+                <Sparkles className="h-4 w-4 text-brand-primary" />
+                <span>{CATALOG_ITEMS.length} Amenities Available</span>
+              </div>
             </div>
 
-            {/* Catalog Grid Removed */}
+            {/* Catalog Directory Section (Pricing Tiers Display - Cards List just like in admin dashboard) */}
+            <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-brand-border pb-4">
+                <div>
+                  <h4 className="font-bold text-brand-dark text-sm font-serif">Seven Rocks Services & Amenity Directory</h4>
+                  <p className="text-[10px] text-brand-stone font-medium">Select any package to request an upgrade or add-on invoice</p>
+                </div>
+
+                <div className="flex items-center space-x-3 shrink-0">
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { id: 'all', label: 'All Services' },
+                      { id: 'fitness', label: 'Fitness & Wellness' },
+                      { id: 'kits', label: 'Equipment Kits' },
+                      { id: 'utilities', label: 'Utilities & Laundry' },
+                      { id: 'other', label: 'Specialty / Others' }
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveCatalogTab(tab.id as any)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                          activeCatalogTab === tab.id
+                            ? 'bg-brand-primary text-white border border-brand-primary'
+                            : 'bg-brand-surface text-brand-secondary border border-brand-border hover:bg-[#E5E0D8]'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {filteredCatalog.map((item) => {
+                  let IconComponent = Compass;
+                  if (item.iconName && ICON_MAP[item.iconName as keyof typeof ICON_MAP]) {
+                    IconComponent = ICON_MAP[item.iconName as keyof typeof ICON_MAP];
+                  } else {
+                    const nameL = item.name.toLowerCase();
+                    if (nameL.includes('fit') || nameL.includes('gym')) IconComponent = Dumbbell;
+                    else if (nameL.includes('kit') || nameL.includes('cook')) IconComponent = CookingPot;
+                    else if (nameL.includes('laund') || nameL.includes('wash')) IconComponent = WashingMachine;
+                    else if (nameL.includes('well') || nameL.includes('spa')) IconComponent = Sparkles;
+                  }
+
+                  const isSubscribed = tenant.activeAddOns?.some(addonStr => {
+                    const nameOnly = addonStr.split(' (')[0].trim().toLowerCase();
+                    return nameOnly === item.name.toLowerCase() || addonStr.toLowerCase().includes(item.name.toLowerCase());
+                  });
+                  const isApproved = isSubscribed || addOnRequests?.some(r =>
+                    (r.tenantId === tenant.id || r.tenantName === tenant.name) &&
+                    r.serviceName?.toLowerCase() === item.name.toLowerCase() &&
+                    r.status === 'Approved'
+                  );
+                  const isPending = !isApproved && addOnRequests?.some(r =>
+                    (r.tenantId === tenant.id || r.tenantName === tenant.name) &&
+                    r.serviceName?.toLowerCase() === item.name.toLowerCase() &&
+                    r.status === 'Pending'
+                  );
+
+                  return (
+                    <div 
+                      key={item.id} 
+                      className="p-4 border border-brand-border rounded-2xl bg-brand-surface/40 hover:bg-brand-surface hover:border-brand-stone transition-all duration-200 flex flex-col justify-between"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div className="p-2 bg-brand-surface text-brand-primary rounded-lg border border-brand-border">
+                            <IconComponent className="h-4 w-4" />
+                          </div>
+                          {item.badge && (
+                            <span className="text-[9px] font-extrabold bg-brand-primary text-white px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              {item.badge}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <h5 className="text-xs font-bold text-brand-dark font-serif">{item.name}</h5>
+                          <span className="text-brand-stone text-[10px] uppercase font-bold tracking-wider font-mono">
+                            {item.category}
+                          </span>
+                        </div>
+
+                        {item.desc && (
+                          <p className="text-[11px] text-brand-secondary line-clamp-2 mt-1 leading-relaxed">
+                            {item.desc}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-brand-border space-y-3">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-[10px] text-brand-stone font-medium">Standard rate:</span>
+                          <strong className="text-sm font-extrabold text-brand-dark font-mono">{item.price}</strong>
+                        </div>
+                        
+                        {item.options && item.options.length > 0 && (
+                          <div className="space-y-1 text-[10px] text-brand-secondary leading-normal font-medium bg-white p-2 rounded-lg border border-brand-border">
+                            <span className="font-bold text-brand-dark block font-serif">Pricing Options / Tiers:</span>
+                            {item.options.map((opt: string, i: number) => (
+                              <div key={i} className="flex items-center space-x-1">
+                                <ChevronRight className="h-2.5 w-2.5 text-brand-primary shrink-0" />
+                                <span className="truncate">{opt}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="pt-1">
+                          {isApproved ? (
+                            <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                              <span>Active Subscription</span>
+                            </div>
+                          ) : isPending ? (
+                            <div className="w-full py-2 px-3 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5">
+                              <Clock className="h-3.5 w-3.5 text-amber-600" />
+                              <span>Request Pending Approval</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenConfirmModal(item)}
+                              className="w-full py-2 px-3 bg-brand-primary hover:bg-[#4E4E37] text-white rounded-xl text-xs font-bold transition-all shadow-brand flex items-center justify-center space-x-1.5 cursor-pointer"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>Request Upgrade</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Empty state when filtered category has no items */}
+              {filteredCatalog.length === 0 && CATALOG_ITEMS.length > 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 bg-brand-surface border-2 border-dashed border-brand-border rounded-xl">
+                  <Compass className="h-6 w-6 text-brand-stone" />
+                  <span className="text-xs text-brand-stone font-medium">No services found in this category.</span>
+                </div>
+              )}
+
+              {/* Empty state when no services have been created yet */}
+              {CATALOG_ITEMS.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 bg-brand-surface border-2 border-dashed border-brand-border rounded-xl">
+                  <Sparkles className="h-8 w-8 text-brand-stone" />
+                  <p className="text-sm font-bold text-brand-dark font-serif">No services in the catalog yet</p>
+                  <p className="text-[11px] text-brand-stone">Add-on services will appear here once listed by management.</p>
+                </div>
+              )}
+            </div>
 
             {/* Request History log table */}
             <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs">
@@ -1574,14 +1741,18 @@ export default function ResidentPortal({
                             <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                               hk.status === 'Completed' 
                                 ? 'bg-brand-surface text-brand-primary border-brand-border'
-                                : hk.status === 'Scheduled'
+                                : (hk.status === 'Scheduled' || hk.status === 'Approved')
+                                ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                : hk.status === 'In Progress'
+                                ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                : hk.status === 'Pending'
                                 ? 'bg-amber-50 text-amber-800 border-amber-200'
                                 : 'bg-rose-50 text-rose-800 border-rose-200'
                             }`}>
                               {hk.status}
                             </span>
                             
-                            {(hk.status === 'Scheduled') && (
+                            {(hk.status === 'Scheduled' || hk.status === 'Pending' || hk.status === 'Approved') && (
                               <button
                                 onClick={() => handleCancelHousekeeping(hk.id, hk.frequency || 'Single Use')}
                                 className="ml-3 px-2 py-1 bg-transparent hover:bg-rose-50 text-rose-600 border border-rose-200 rounded text-[9px] font-bold transition-colors cursor-pointer"
@@ -1602,8 +1773,8 @@ export default function ResidentPortal({
           </div>
         )}
 
-        {/* --- TABS 4: BILLING & ONLINE PAYMENTS --- */}
-        {FEATURES.residentBilling && activeTab === 'billing' && (
+        {/* --- TABS 4: INVOICES & BILLING --- */}
+        {(activeTab === 'invoices' || activeTab === 'billing') && (
           <div className="space-y-6 animate-fade-in">
             
             <div className="relative">
@@ -1628,8 +1799,14 @@ export default function ResidentPortal({
 
             {/* Table of invoices */}
             <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs">
-              <h4 className="font-bold text-brand-dark text-sm font-serif italic mb-4 border-b border-brand-border pb-3">
-                Rent Invoices Ledger
+              <h4 className="font-bold text-brand-dark text-sm font-serif italic mb-4 border-b border-brand-border pb-3 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Receipt className="h-4.5 w-4.5 text-brand-primary" />
+                  <span>Rent Invoices Ledger</span>
+                </div>
+                <span className="text-[10px] font-mono text-brand-stone font-normal">
+                  {tenantInvoices.length} statement(s) on file
+                </span>
               </h4>
 
               {tenantInvoices.length === 0 ? (
@@ -1656,6 +1833,7 @@ export default function ResidentPortal({
                         if (inv.depositAmount > 0) description.push(`Deposit: €${inv.depositAmount}`);
                         if (inv.adminFee > 0) description.push(`Admin: €${inv.adminFee}`);
                         if (inv.addOnTotal > 0) description.push(`Services: €${inv.addOnTotal}`);
+                        if (description.length === 0 && inv.description) description.push(inv.description);
 
                         return (
                           <tr key={inv.id} className="hover:bg-brand-surface/40">
@@ -1685,23 +1863,34 @@ export default function ResidentPortal({
                                   Settled via {inv.paymentMethod || 'Desk Terminal'}
                                 </span>
                               ) : (
-                                <span className="text-brand-stone block">Unpaid</span>
+                                <span className="text-amber-800 font-semibold block">Unpaid</span>
                               )}
                             </td>
                             <td className="py-4 text-right">
-                              {inv.status === 'Paid' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-surface text-brand-primary border border-brand-border">
-                                  Paid & Settled
-                                </span>
-                              ) : (
+                              <div className="flex items-center justify-end space-x-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => setCheckoutInvoice(inv)}
-                                  className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer"
+                                  onClick={() => setViewingInvoice(inv)}
+                                  className="px-2.5 py-1.5 bg-brand-surface hover:bg-[#E5E0D8] text-brand-dark border border-brand-border rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-colors cursor-pointer"
+                                  title="View and print official invoice"
                                 >
-                                  Request Desk Invoice
+                                  <Eye className="h-3 w-3 text-brand-primary" />
+                                  <span>View Invoice</span>
                                 </button>
-                              )}
+                                {inv.status === 'Paid' ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-surface text-brand-primary border border-brand-border">
+                                    Paid & Settled
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCheckoutInvoice(inv)}
+                                    className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer"
+                                  >
+                                    Request Desk Invoice
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2018,8 +2207,327 @@ export default function ResidentPortal({
 
       </main>
 
+      {/* --- OFFICIAL INVOICE VIEW & PRINT MODAL --- */}
+      {viewingInvoice && (
+        <div className="fixed inset-0 bg-slate-950/70 flex items-center justify-center p-4 z-50 backdrop-blur-xs animate-fade-in overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-brand-border max-w-2xl w-full my-8 flex flex-col overflow-hidden shadow-2xl animate-scale-up">
+            
+            {/* Top Modal Controls */}
+            <div className="bg-brand-surface border-b border-brand-border p-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2">
+                <Receipt className="h-4 w-4 text-brand-primary" />
+                <span className="font-bold text-xs text-brand-dark">Official Seven Rocks Invoice</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  viewingInvoice.status === 'Paid'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                }`}>
+                  {viewingInvoice.status}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const printContent = document.getElementById('printable-resident-invoice');
+                    if (!printContent) return;
+                    const printWindow = window.open('', '', 'width=900,height=800');
+                    if (!printWindow) return;
+                    printWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>Invoice - ${viewingInvoice.id}</title>
+                          <style>
+                            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 32px; color: #0f172a; margin: 0; }
+                            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+                            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
+                            th { background-color: #f8fafc; font-weight: 600; }
+                            .text-right { text-align: right; }
+                            .font-bold { font-weight: bold; }
+                            .header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+                            .company-info { font-size: 11px; line-height: 1.5; }
+                            .invoice-title { font-size: 28px; font-weight: bold; margin: 0; text-align: right; }
+                            .meta-table { font-size: 11px; margin-top: 8px; }
+                            .meta-table td { border: none; padding: 2px 6px; }
+                            .total-box { margin-top: 16px; border-top: 2px solid #0f172a; padding-top: 8px; font-size: 13px; }
+                            .bank-details { margin-top: 24px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 10.5px; line-height: 1.5; }
+                          </style>
+                        </head>
+                        <body>
+                          ${printContent.innerHTML}
+                        </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.focus();
+                    setTimeout(() => {
+                      printWindow.print();
+                    }, 250);
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-brand-surface text-brand-dark border border-brand-border rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <Printer className="h-3.5 w-3.5 text-brand-primary" />
+                  <span>Print / PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingInvoice(null)}
+                  className="p-1.5 text-brand-stone hover:text-brand-dark rounded-lg cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Invoice Body */}
+            <div className="p-6 md:p-8 overflow-y-auto max-h-[75vh] space-y-6 text-slate-900 bg-white" id="printable-resident-invoice">
+              
+              {/* Header: Company & Brand Left, Invoice Title Right */}
+              <div className="flex justify-between items-start gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <SevenRocksLogo className="h-8 w-8 text-[#A4854E]" />
+                    <div className="flex flex-col">
+                      <span className="font-serif text-base tracking-[0.18em] font-bold text-[#A4854E] uppercase leading-tight">
+                        Seven Rocks
+                      </span>
+                      <span className="text-[7px] tracking-[0.25em] text-[#8C733E] uppercase font-sans font-semibold">
+                        Serviced Residences
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[11px] leading-relaxed text-slate-700">
+                    <p className="font-bold text-slate-900">{OFFICIAL_COMPANY_DETAILS.name}</p>
+                    <p>{OFFICIAL_COMPANY_DETAILS.addressLine1}</p>
+                    <p>{OFFICIAL_COMPANY_DETAILS.addressCity}</p>
+                    <p><span className="font-semibold">E:</span> {OFFICIAL_COMPANY_DETAILS.email}</p>
+                    <p><span className="font-semibold">T:</span> {OFFICIAL_COMPANY_DETAILS.phone}</p>
+                    <p><span className="font-semibold">UID-Nr.:</span> {OFFICIAL_COMPANY_DETAILS.uidNr}</p>
+                  </div>
+                </div>
+
+                <div className="text-right space-y-2">
+                  <h2 className="text-3xl font-bold font-sans text-slate-900 tracking-tight">Invoice</h2>
+                  <div className="inline-block text-left text-[11px] text-slate-700">
+                    <table className="meta-table">
+                      <tbody>
+                        <tr>
+                          <td className="font-medium text-slate-600">Invoice no.</td>
+                          <td>:</td>
+                          <td className="font-bold font-mono text-slate-900">{formatId(viewingInvoice.id)}</td>
+                        </tr>
+                        <tr>
+                          <td className="font-medium text-slate-600">Inv. Date</td>
+                          <td>:</td>
+                          <td>{viewingInvoice.date}</td>
+                        </tr>
+                        <tr>
+                          <td className="font-medium text-slate-600">Due Date</td>
+                          <td>:</td>
+                          <td>{viewingInvoice.dueDate}</td>
+                        </tr>
+                        <tr>
+                          <td className="font-medium text-slate-600">Status</td>
+                          <td>:</td>
+                          <td className="font-bold">{viewingInvoice.status}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recipient "To" Section */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] leading-relaxed">
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Billed To</span>
+                <p className="font-bold text-slate-900 text-xs">{viewingInvoice.tenantName || tenant.name}</p>
+                <p className="text-slate-700">{tenant.email}</p>
+                <p className="text-slate-700">Unit: {viewingInvoice.roomNumber || tenant.roomNumber} &bull; {viewingInvoice.building || tenant.building || 'Seven Rocks Vienna'}</p>
+              </div>
+
+              {/* Line Items Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                    <tr>
+                      <th className="p-3">Pos.</th>
+                      <th className="p-3">Description</th>
+                      <th className="p-3 text-right">Net Amount</th>
+                      <th className="p-3 text-right">VAT Rate</th>
+                      <th className="p-3 text-right">VAT Amount</th>
+                      <th className="p-3 text-right">Total (Gross)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-800">
+                    {/* Itemized Rows */}
+                    {(() => {
+                      const rows = [];
+                      let pos = 1;
+
+                      if (viewingInvoice.rentAmount > 0) {
+                        const net = viewingInvoice.rentAmount;
+                        const vat = net * 0.10;
+                        rows.push({
+                          pos: pos++,
+                          desc: 'Monthly Accommodation Rent',
+                          net: net,
+                          vatRate: '10%',
+                          vat: vat,
+                          total: net + vat
+                        });
+                      }
+
+                      if (viewingInvoice.extraPersonSurcharge > 0) {
+                        const net = viewingInvoice.extraPersonSurcharge;
+                        const vat = net * 0.10;
+                        rows.push({
+                          pos: pos++,
+                          desc: 'Second Occupant / Extra Person Surcharge',
+                          net: net,
+                          vatRate: '10%',
+                          vat: vat,
+                          total: net + vat
+                        });
+                      }
+
+                      if (viewingInvoice.depositAmount > 0) {
+                        rows.push({
+                          pos: pos++,
+                          desc: 'Security Deposit (Escrow Guarantee)',
+                          net: viewingInvoice.depositAmount,
+                          vatRate: '0%',
+                          vat: 0,
+                          total: viewingInvoice.depositAmount
+                        });
+                      }
+
+                      if (viewingInvoice.adminFee > 0) {
+                        const net = viewingInvoice.adminFee;
+                        const vat = net * 0.20;
+                        rows.push({
+                          pos: pos++,
+                          desc: 'One-Time Onboarding & Administration Fee',
+                          net: net,
+                          vatRate: '20%',
+                          vat: vat,
+                          total: net + vat
+                        });
+                      }
+
+                      if (viewingInvoice.addOnTotal > 0) {
+                        const net = viewingInvoice.addOnTotal;
+                        const vat = net * 0.20;
+                        rows.push({
+                          pos: pos++,
+                          desc: 'Add-On Services & Amenity Subscriptions',
+                          net: net,
+                          vatRate: '20%',
+                          vat: vat,
+                          total: net + vat
+                        });
+                      }
+
+                      if (rows.length === 0) {
+                        const total = viewingInvoice.totalAmount;
+                        const vatRate = viewingInvoice.vatRate || 10;
+                        const net = viewingInvoice.subtotal || (total / (1 + vatRate / 100));
+                        const vat = viewingInvoice.vatAmount || (total - net);
+                        rows.push({
+                          pos: 1,
+                          desc: viewingInvoice.description || 'Accommodation Service Charge',
+                          net: net,
+                          vatRate: `${vatRate}%`,
+                          vat: vat,
+                          total: total
+                        });
+                      }
+
+                      return rows.map((r) => (
+                        <tr key={r.pos} className="hover:bg-slate-50/50">
+                          <td className="p-3 font-mono text-slate-500">{r.pos}</td>
+                          <td className="p-3 font-medium text-slate-900">{r.desc}</td>
+                          <td className="p-3 text-right font-mono">€{r.net.toFixed(2)}</td>
+                          <td className="p-3 text-right font-mono text-slate-600">{r.vatRate}</td>
+                          <td className="p-3 text-right font-mono text-slate-600">€{r.vat.toFixed(2)}</td>
+                          <td className="p-3 text-right font-mono font-bold text-slate-900">€{r.total.toFixed(2)}</td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary Totals */}
+              <div className="flex justify-end">
+                <div className="w-64 space-y-1.5 text-xs">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Net Subtotal:</span>
+                    <span className="font-mono">€{(viewingInvoice.subtotal || viewingInvoice.totalAmount * 0.9).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>VAT ({viewingInvoice.vatRate || 10}%):</span>
+                    <span className="font-mono">€{(viewingInvoice.vatAmount || viewingInvoice.totalAmount * 0.1).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between border-t-2 border-slate-900 pt-2 text-sm font-bold text-slate-900">
+                    <span>Total (Gross):</span>
+                    <span className="font-mono text-brand-primary">€{viewingInvoice.totalAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Instructions / Bank Details */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-[11px] text-slate-700">
+                <div className="flex items-center space-x-2 text-slate-900 font-bold text-xs">
+                  <CreditCard className="h-4 w-4 text-brand-primary" />
+                  <span>Payment Information &amp; Banking Details</span>
+                </div>
+                <p>
+                  <strong>Bank:</strong> {OFFICIAL_COMPANY_DETAILS.bank}<br />
+                  <strong>IBAN:</strong> {OFFICIAL_COMPANY_DETAILS.iban} &bull; <strong>BIC:</strong> {OFFICIAL_COMPANY_DETAILS.bic}
+                </p>
+                <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-200">
+                  Desk Payment: You can also settle this invoice in person at reception via Cash, Terminal (Debit/Credit Card), or Apple/Google Pay.
+                </p>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 border-t border-brand-border p-4 flex justify-between items-center shrink-0">
+              <span className="text-[10px] text-brand-stone font-serif italic">
+                {OFFICIAL_COMPANY_DETAILS.tagline}
+              </span>
+              <div className="flex space-x-2">
+                {viewingInvoice.status !== 'Paid' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const inv = viewingInvoice;
+                      setViewingInvoice(null);
+                      setCheckoutInvoice(inv);
+                    }}
+                    className="px-4 py-2 bg-brand-primary hover:bg-[#4E4E37] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-brand flex items-center space-x-1.5"
+                  >
+                    <Receipt className="h-3.5 w-3.5" />
+                    <span>Pay at Desk</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setViewingInvoice(null)}
+                  className="px-4 py-2 border border-brand-border text-brand-secondary bg-white hover:bg-brand-surface rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* --- DESK PAYMENT & INVOICE REQUEST MODAL --- */}
-      {FEATURES.residentBilling && checkoutInvoice && (
+      {checkoutInvoice && (
         <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl border border-brand-border max-w-md w-full p-6 space-y-6 shadow-2xl animate-scale-up">
             

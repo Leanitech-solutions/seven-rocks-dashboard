@@ -6,8 +6,10 @@ import { eq } from 'drizzle-orm';
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const body = await req.json();
-    const { status, scheduleDate, frequency, priceValue } = body;
+    const raw = await req.text();
+    const body = raw ? JSON.parse(raw) : {};
+    const status = typeof body === 'string' ? body : body.status;
+    const { scheduleDate, frequency, priceValue } = typeof body === 'object' && body !== null ? body : {};
 
     const updateData: any = { updatedAt: new Date() };
     if (status) updateData.status = status;

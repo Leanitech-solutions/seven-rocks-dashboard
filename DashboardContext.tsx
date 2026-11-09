@@ -22,9 +22,12 @@ function mapTenant(t: any): Tenant {
     contractStartDate: t.leaseStart || '',
     contractEndDate: t.leaseEnd || '',
     contractLengthMonths: t.contractLengthMonths || 6,
-    idDocumentUrl: t.idDocumentUrl || '',
-    idDocumentVerified: t.idVerificationStatus === 'verified',
-    contractVerified: t.contractVerified ?? false,
+    idDocumentUrl: t.idDocumentUrl || t.id_document_url || '',
+    idDocumentVerified: t.idVerificationStatus === 'verified' || t.id_verification_status === 'verified',
+    contractFileName: (t.contractFileName || (typeof (t.contractUrl || t.contract_url) === 'string' && (t.contractUrl || t.contract_url).includes('/') ? (t.contractUrl || t.contract_url).split('/').pop()?.replace(/^\d+-/, '') : (t.contractUrl || t.contract_url)) || '').replace(/^\d+-/, ''),
+    contractUrl: t.contractUrl || t.contract_url || '',
+    contractVerified: t.contractVerified ?? t.contract_verified ?? false,
+    additionalDocs: Array.isArray(t.additionalDocs) ? t.additionalDocs : Array.isArray(t.additional_docs) ? t.additional_docs : [],
     hasExtraPerson: t.hasExtraPerson ?? false,
     depositStatus: t.depositStatus || 'Pending',
     depositAmount: Number(t.depositAmount) || 0,
@@ -268,6 +271,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleUpdateTenant = useCallback(async (updated: Tenant) => {
+    // Optimistically update frontend state so documents and changes show immediately
+    setTenants(prev => prev.map(t => (t.id === updated.id || t.email.toLowerCase() === updated.email.toLowerCase()) ? updated : t));
+
     try {
       const payload: Record<string, any> = {
         fullName: updated.name,
@@ -282,7 +288,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         depositAmount: updated.depositAmount,
         depositStatus: updated.depositStatus,
         idDocumentUrl: updated.idDocumentUrl,
+        contractUrl: updated.contractUrl || updated.contractFileName || null,
         contractVerified: updated.contractVerified,
+        additionalDocs: updated.additionalDocs || [],
         hasExtraPerson: updated.hasExtraPerson,
         contractLengthMonths: updated.contractLengthMonths,
         oneTimeAdminFee: updated.oneTimeAdminFee,
@@ -422,15 +430,26 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const handleUpdateHousekeeping = useCallback(async (id: string, updates: Partial<HousekeepingRequest>) => {
+  const handleUpdateHousekeeping = useCallback(async (id: string, updates: Partial<HousekeepingRequest> | HousekeepingRequest['status']) => {
     try {
+      const payload = typeof updates === 'string' ? { status: updates } : updates;
       const res = await fetch(`/api/housekeeping/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
-        setHousekeepings(prev => prev.map(h => h.id === id ? { ...h, ...updates } : h));
+        const saved = await res.json();
+        setHousekeepings(prev => prev.map(h => {
+          if (h.id === id) {
+            return {
+              ...h,
+              ...payload,
+              ...(saved && typeof saved === 'object' && saved.status ? { status: saved.status } : {})
+            };
+          }
+          return h;
+        }));
       }
     } catch (err) {
       console.error('Failed to update housekeeping:', err);

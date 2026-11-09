@@ -8,7 +8,8 @@ import { formatId } from '../../../../lib/formatId';
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const data = await req.json();
+    const raw = await req.text();
+    const data = raw ? JSON.parse(raw) : {};
     
     // Fetch previous state to detect status changes
     const previousTicketRes = await db.select().from(maintenanceTickets).where(eq(maintenanceTickets.id, id));

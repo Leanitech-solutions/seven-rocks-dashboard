@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useToast } from '../lib/useToast';
 import { formatId } from '../lib/formatId';
 import { 
@@ -26,7 +26,9 @@ import {
   ChevronLeft,
   ChevronRight,
   List,
-  Download
+  Download,
+  RotateCcw,
+  MoreVertical
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -82,6 +84,17 @@ export default function HousekeepingView({
   const [newFrequency, setNewFrequency] = useState<'Monthly' | 'Bi-Weekly' | 'Single Use'>('Single Use');
   const [newDate, setNewDate] = useState('');
   const [newNotes, setNewNotes] = useState('');
+
+  // Action dropdown state for housekeeping list
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = () => setOpenActionMenuId(null);
+    if (openActionMenuId) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [openActionMenuId]);
 
   // Target date calculated relative: Today is July 9, 2026
   const TODAY_STR = "2026-07-09";
@@ -634,7 +647,7 @@ export default function HousekeepingView({
             </div>
 
             {housekeepingViewMode === 'list' ? (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto min-h-[320px]">
                 <table className="w-full text-left border-collapse min-w-[750px]">
                   <thead>
                     <tr className="bg-brand-surface border-b border-brand-border">
@@ -648,7 +661,10 @@ export default function HousekeepingView({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-brand-border text-xs">
-                    {housekeepings.map((h) => (
+                    {housekeepings.map((h, idx) => {
+                      const isNearBottom = idx >= housekeepings.length - 2 && housekeepings.length > 2;
+
+                      return (
                       <tr key={h.id} className="hover:bg-brand-surface/40 transition-colors">
                         <td className="px-6 py-4">
                           <p className="font-bold text-brand-dark">{h.tenantName}</p>
@@ -668,73 +684,193 @@ export default function HousekeepingView({
                           <p className="text-[10px] text-brand-stone font-semibold tracking-wider font-mono">€{h.priceValue}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border border-brand-border ${
-                            h.status === 'Scheduled'
-                              ? 'bg-brand-surface text-brand-stone'
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            h.status === 'Pending'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : (h.status === 'Scheduled' || h.status === 'Approved')
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
                               : h.status === 'In Progress'
-                              ? 'bg-amber-50 text-amber-600 border-amber-200'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200'
                               : h.status === 'Completed'
-                              ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : 'bg-rose-50 text-rose-800 border-rose-200'
                           }`}>
                             {h.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-1.5">
-                            {h.status === 'Scheduled' && (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    onUpdateHousekeeping(h.id, 'In Progress');
-                                    onAddActivity('addon', 'Housekeeping Approved', `Cleaning approved/started for ${h.tenantName} in ${h.roomNumber}.`);
-                                  }}
-                                  className="p-1 text-amber-600 hover:bg-amber-50 rounded border border-brand-border cursor-pointer"
-                                  title="Approve / Start Job"
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    onUpdateHousekeeping(h.id, 'Cancelled');
-                                    onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${h.tenantName}.`);
-                                  }}
-                                  className="p-1 text-rose-700 hover:bg-rose-50 rounded border border-brand-border cursor-pointer"
-                                  title="Cancel Job"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                              </>
-                            )}
-                            
-                            {h.status === 'In Progress' && (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    onUpdateHousekeeping(h.id, 'Completed');
-                                    onAddActivity('addon', 'Housekeeping Complete', `Clean completed for ${h.tenantName} in ${h.roomNumber}.`);
-                                  }}
-                                  className="p-1 text-brand-primary hover:bg-brand-surface rounded border border-brand-border cursor-pointer"
-                                  title="Complete Job"
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    onUpdateHousekeeping(h.id, 'Cancelled');
-                                    onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${h.tenantName}.`);
-                                  }}
-                                  className="p-1 text-rose-700 hover:bg-rose-50 rounded border border-brand-border cursor-pointer"
-                                  title="Cancel Job"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                              </>
+                        <td className="px-6 py-4 text-right relative">
+                          <div className="flex justify-end items-center relative">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenActionMenuId(openActionMenuId === h.id ? null : h.id);
+                              }}
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                openActionMenuId === h.id
+                                  ? 'bg-brand-primary text-white border-brand-primary shadow-xs'
+                                  : 'text-brand-secondary hover:text-brand-dark bg-white hover:bg-brand-surface border-brand-border'
+                              }`}
+                              title="Task Actions"
+                              aria-label="Actions"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+
+                            {openActionMenuId === h.id && (
+                              <div 
+                                onClick={(e) => e.stopPropagation()}
+                                className={`absolute right-0 ${
+                                  isNearBottom ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                                } w-48 bg-white border border-brand-border rounded-xl shadow-xl z-30 py-1.5 text-xs text-left animate-scale-up divide-y divide-brand-surface`}
+                              >
+                                <div className="px-3 py-1 text-[9px] font-bold text-brand-stone uppercase tracking-wider font-mono">
+                                  Status: <span className="text-brand-dark">{h.status}</span>
+                                </div>
+
+                                {h.status === 'Pending' && (
+                                  <div className="py-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Scheduled');
+                                        onAddActivity('addon', 'Housekeeping Approved', `Cleaning scheduled for ${h.tenantName} in ${h.roomNumber}.`);
+                                        showToast(`Cleaning for ${h.tenantName} approved & scheduled.`, 'success');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-blue-700 hover:bg-blue-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <Check className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                                      <span>Approve & Schedule</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'In Progress');
+                                        onAddActivity('addon', 'Housekeeping Started', `Cleaning started for ${h.tenantName} in ${h.roomNumber}.`);
+                                        showToast(`Cleaning started for ${h.tenantName}.`, 'info');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-amber-700 hover:bg-amber-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <Play className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                      <span>Start Cleaning</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Cancelled');
+                                        onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${h.tenantName}.`);
+                                        showToast(`Cleaning cancelled for ${h.tenantName}.`, 'warning');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-rose-700 hover:bg-rose-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <X className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                                      <span>Cancel Request</span>
+                                    </button>
+                                  </div>
+                                )}
+
+                                {(h.status === 'Scheduled' || h.status === 'Approved') && (
+                                  <div className="py-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'In Progress');
+                                        onAddActivity('addon', 'Housekeeping Started', `Cleaning started for ${h.tenantName} in ${h.roomNumber}.`);
+                                        showToast(`Cleaning started for ${h.tenantName}.`, 'info');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-amber-700 hover:bg-amber-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <Play className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                      <span>Start Work</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Completed');
+                                        onAddActivity('addon', 'Housekeeping Complete', `Clean completed for ${h.tenantName} in ${h.roomNumber}.`);
+                                        showToast(`Housekeeping for ${h.tenantName} marked completed.`, 'success');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                      <span>Mark as Completed</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Cancelled');
+                                        onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${h.tenantName}.`);
+                                        showToast(`Cleaning cancelled for ${h.tenantName}.`, 'warning');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-rose-700 hover:bg-rose-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <X className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                                      <span>Cancel Job</span>
+                                    </button>
+                                  </div>
+                                )}
+
+                                {h.status === 'In Progress' && (
+                                  <div className="py-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Completed');
+                                        onAddActivity('addon', 'Housekeeping Complete', `Clean completed for ${h.tenantName} in ${h.roomNumber}.`);
+                                        showToast(`Housekeeping for ${h.tenantName} marked completed.`, 'success');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                      <span>Mark as Completed</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Cancelled');
+                                        onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${h.tenantName}.`);
+                                        showToast(`Cleaning cancelled for ${h.tenantName}.`, 'warning');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-rose-700 hover:bg-rose-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <X className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                                      <span>Cancel Job</span>
+                                    </button>
+                                  </div>
+                                )}
+
+                                {(h.status === 'Completed' || h.status === 'Cancelled') && (
+                                  <div className="py-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        onUpdateHousekeeping(h.id, 'Scheduled');
+                                        onAddActivity('addon', 'Housekeeping Rescheduled', `Cleaning rescheduled for ${h.tenantName} in ${h.roomNumber}.`);
+                                        showToast(`Cleaning for ${h.tenantName} reopened & scheduled.`, 'info');
+                                      }}
+                                      className="w-full px-3 py-2 text-left font-semibold text-brand-dark hover:bg-brand-surface flex items-center space-x-2 transition-colors cursor-pointer"
+                                    >
+                                      <RotateCcw className="h-3.5 w-3.5 text-brand-primary shrink-0" />
+                                      <span>Reopen & Schedule</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -850,12 +986,21 @@ export default function HousekeepingView({
                                   ? 'bg-emerald-50 text-emerald-800 border-emerald-100 hover:bg-emerald-100'
                                   : hk.status === 'Cancelled'
                                   ? 'bg-slate-50 text-slate-400 border-slate-200 line-through'
-                                  : 'bg-emerald-50/60 text-brand-dark border-emerald-200 hover:bg-emerald-50'
+                                  : hk.status === 'In Progress'
+                                  ? 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
+                                  : hk.status === 'Pending'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
                               }`}
-                              title={`${hk.tenantName} (${hk.roomNumber}) - ${hk.frequency}`}
+                              title={`${hk.tenantName} (${hk.roomNumber}) - ${hk.frequency} [${hk.status}]`}
                             >
                               <span className="truncate max-w-[85%] font-semibold text-left">🧹 {hk.tenantName.split(' ')[0]} ({hk.roomNumber})</span>
-                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${hk.status === 'Completed' ? 'bg-emerald-600' : 'bg-amber-500'}`} />
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                hk.status === 'Completed' ? 'bg-emerald-600' :
+                                hk.status === 'In Progress' ? 'bg-purple-600' :
+                                hk.status === 'Cancelled' ? 'bg-slate-400' :
+                                hk.status === 'Pending' ? 'bg-amber-500' : 'bg-blue-500'
+                              }`} />
                             </div>
                           ))}
 
@@ -1066,36 +1211,143 @@ export default function HousekeepingView({
                     </div>
                   )}
 
-                  <div className="pt-4 border-t border-brand-border flex justify-end space-x-2">
-                    {selectedCalendarTask.data.status === 'Scheduled' && (
-                      <>
-                        <button
-                          onClick={() => {
-                            onUpdateHousekeeping(selectedCalendarTask.data.id, 'Cancelled');
-                            onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`);
-                            setSelectedCalendarTask(null);
-                          }}
-                          className="px-3 py-1.5 border border-rose-200 text-rose-700 hover:bg-rose-50 text-[11px] font-bold rounded-lg cursor-pointer transition-all"
-                        >
-                          Cancel Cleaning
-                        </button>
-                        <button
-                          onClick={() => {
-                            onUpdateHousekeeping(selectedCalendarTask.data.id, 'Completed');
-                            onAddActivity('addon', 'Housekeeping Complete', `Clean completed for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
-                            setSelectedCalendarTask(null);
-                          }}
-                          className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all"
-                        >
-                          Complete Cleaning
-                        </button>
-                      </>
-                    )}
-                    {selectedCalendarTask.data.status !== 'Scheduled' && (
-                      <span className="text-[11px] text-brand-stone font-bold">
-                        Job status: <span className="text-brand-primary">{selectedCalendarTask.data.status}</span>
+                  <div className="pt-4 border-t border-brand-border flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-brand-stone font-bold uppercase">Current Status</p>
+                      <span className={`inline-block px-2 py-0.5 mt-0.5 rounded text-[10px] font-bold border ${
+                        selectedCalendarTask.data.status === 'Pending'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : (selectedCalendarTask.data.status === 'Scheduled' || selectedCalendarTask.data.status === 'Approved')
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : selectedCalendarTask.data.status === 'In Progress'
+                          ? 'bg-purple-50 text-purple-700 border-purple-200'
+                          : selectedCalendarTask.data.status === 'Completed'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-800 border-rose-200'
+                      }`}>
+                        {selectedCalendarTask.data.status}
                       </span>
-                    )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {selectedCalendarTask.data.status === 'Pending' && (
+                        <>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'Cancelled');
+                              onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`);
+                              showToast(`Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`, 'warning');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 border border-rose-200 text-rose-700 hover:bg-rose-50 text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'Scheduled');
+                              onAddActivity('addon', 'Housekeeping Approved', `Cleaning scheduled for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
+                              showToast(`Cleaning for ${selectedCalendarTask.data.tenantName} approved & scheduled.`, 'success');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Approve & Schedule
+                          </button>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'In Progress');
+                              onAddActivity('addon', 'Housekeeping Started', `Cleaning started for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
+                              showToast(`Cleaning started for ${selectedCalendarTask.data.tenantName}.`, 'info');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Start Work
+                          </button>
+                        </>
+                      )}
+
+                      {(selectedCalendarTask.data.status === 'Scheduled' || selectedCalendarTask.data.status === 'Approved') && (
+                        <>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'Cancelled');
+                              onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`);
+                              showToast(`Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`, 'warning');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 border border-rose-200 text-rose-700 hover:bg-rose-50 text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Cancel Cleaning
+                          </button>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'In Progress');
+                              onAddActivity('addon', 'Housekeeping Started', `Cleaning started for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
+                              showToast(`Cleaning started for ${selectedCalendarTask.data.tenantName}.`, 'info');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Start Work
+                          </button>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'Completed');
+                              onAddActivity('addon', 'Housekeeping Complete', `Clean completed for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
+                              showToast(`Housekeeping for ${selectedCalendarTask.data.tenantName} marked completed.`, 'success');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Complete Cleaning
+                          </button>
+                        </>
+                      )}
+
+                      {selectedCalendarTask.data.status === 'In Progress' && (
+                        <>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'Cancelled');
+                              onAddActivity('addon', 'Housekeeping Cancelled', `Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`);
+                              showToast(`Cleaning cancelled for ${selectedCalendarTask.data.tenantName}.`, 'warning');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 border border-rose-200 text-rose-700 hover:bg-rose-50 text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => {
+                              onUpdateHousekeeping(selectedCalendarTask.data.id, 'Completed');
+                              onAddActivity('addon', 'Housekeeping Complete', `Clean completed for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
+                              showToast(`Housekeeping for ${selectedCalendarTask.data.tenantName} marked completed.`, 'success');
+                              setSelectedCalendarTask(null);
+                            }}
+                            className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all"
+                          >
+                            Complete Cleaning
+                          </button>
+                        </>
+                      )}
+
+                      {(selectedCalendarTask.data.status === 'Completed' || selectedCalendarTask.data.status === 'Cancelled') && (
+                        <button
+                          onClick={() => {
+                            onUpdateHousekeeping(selectedCalendarTask.data.id, 'Scheduled');
+                            onAddActivity('addon', 'Housekeeping Rescheduled', `Cleaning rescheduled for ${selectedCalendarTask.data.tenantName} in ${selectedCalendarTask.data.roomNumber}.`);
+                            showToast(`Cleaning for ${selectedCalendarTask.data.tenantName} reopened & scheduled.`, 'info');
+                            setSelectedCalendarTask(null);
+                          }}
+                          className="px-3 py-1.5 bg-brand-surface hover:bg-[#E5E0D8] border border-brand-border text-brand-secondary text-[11px] font-bold rounded-lg cursor-pointer transition-all flex items-center gap-1.5"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5 text-brand-primary" />
+                          <span>Reopen / Reschedule</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (

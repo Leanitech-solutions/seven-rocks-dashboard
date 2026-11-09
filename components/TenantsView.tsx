@@ -39,7 +39,9 @@ import {
   ArrowUp,
   ArrowDown,
   CheckCircle2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Pencil,
+  Loader2
 } from 'lucide-react';
 import { Tenant, ContractExtensionRequest, Invoice, SupportTicket } from '../types';
 import { FEATURES } from '../lib/features';
@@ -223,6 +225,13 @@ export default function TenantsView({
   const [newInvQty, setNewInvQty] = useState(1);
   const [newInvCondition, setNewInvCondition] = useState<'Good' | 'Fair' | 'Needs Replacement'>('Good');
 
+  // Lease price editing states
+  const [isEditingPrices, setIsEditingPrices] = useState(false);
+  const [editMonthlyRent, setEditMonthlyRent] = useState<number>(0);
+  const [editDepositAmount, setEditDepositAmount] = useState<number>(0);
+  const [editDepositStatus, setEditDepositStatus] = useState<'Paid' | 'Unpaid' | 'Refunded' | 'Pending'>('Pending');
+  const [editAdminFee, setEditAdminFee] = useState<number>(90);
+
   // Effect to sync states when selected tenant changes
   React.useEffect(() => {
     const selected = tenants.find(t => t.id === selectedTenantId);
@@ -233,13 +242,46 @@ export default function TenantsView({
       setAssignPropertyLocation(selected.propertyLocation || selected.building || '');
       setAssignStartDate(selected.contractStartDate || '2026-07-09');
       setAssignEndDate(selected.contractEndDate || '2027-01-09');
+      if (!isEditingPrices) {
+        setEditMonthlyRent(selected.monthlyRent || 0);
+        setEditDepositAmount(selected.depositAmount || 0);
+        setEditDepositStatus(selected.depositStatus || 'Pending');
+        setEditAdminFee(selected.oneTimeAdminFee ?? 90);
+      }
     }
   }, [selectedTenantId, tenants]);
+
+  const handleSavePrices = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTenant) return;
+
+    const updated: Tenant = {
+      ...selectedTenant,
+      monthlyRent: editMonthlyRent,
+      depositAmount: editDepositAmount,
+      depositStatus: editDepositStatus,
+      oneTimeAdminFee: editAdminFee,
+    };
+
+    onUpdateTenant(updated);
+    setIsEditingPrices(false);
+    showToast(`Lease rates for ${selectedTenant.name} updated: Rent €${editMonthlyRent.toFixed(2)}, Deposit €${editDepositAmount.toFixed(2)}.`, 'success');
+    onAddActivity(
+      'tenant',
+      'Updated Lease Pricing',
+      `Admin updated lease rates for ${selectedTenant.name}: Rent €${editMonthlyRent.toFixed(2)}/mo, Deposit €${editDepositAmount.toFixed(2)} (${editDepositStatus}), Move-in Fee €${editAdminFee.toFixed(2)}.`
+    );
+  };
 
   // Document Vault preview states
   const [activePreviewDoc, setActivePreviewDoc] = useState<{
     fileName: string;
-    docType: 'id' | 'contract';
+    docType: 'id' | 'contract' | 'other';
+    fileUrl?: string;       // preview URL (fl_inline for Cloudinary)
+    downloadUrl?: string;   // download URL (fl_attachment for Cloudinary)
+    fileType?: string;
+    fileSize?: string;
+    uploadedAt?: string;
   } | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [rotation, setRotation] = useState<number>(0);
@@ -247,8 +289,46 @@ export default function TenantsView({
   const [showRejectionForm, setShowRejectionForm] = useState<boolean>(false);
   const [rejectionReason, setRejectionReason] = useState<string>('');
 
+  // Helper to open document preview with clean defaults
+  const openDocumentPreview = (
+    fileName: string,
+    docType: 'contract' | 'id' | 'other',
+    fileUrl?: string,
+    fileType?: string,
+    fileSize?: string,
+    uploadedAt?: string,
+    downloadUrl?: string
+  ) => {
+    let resolvedFileUrl = fileUrl;
+    let resolvedDownloadUrl = downloadUrl;
+
+    // Automatically route direct Cloudinary URLs through the authenticated streaming proxy
+    if (fileUrl && fileUrl.includes('cloudinary.com')) {
+      const safeName = encodeURIComponent(fileName);
+      const encodedId = encodeURIComponent(fileUrl);
+      resolvedFileUrl = `/api/docs/file?publicId=${encodedId}&name=${safeName}&mode=inline`;
+      resolvedDownloadUrl = `/api/docs/file?publicId=${encodedId}&name=${safeName}&mode=attachment`;
+    }
+
+    setActivePreviewDoc({
+      fileName,
+      docType,
+      fileUrl: resolvedFileUrl,
+      downloadUrl: resolvedDownloadUrl,
+      fileType,
+      fileSize,
+      uploadedAt
+    });
+    setZoomLevel(100);
+    setRotation(0);
+    setWatermarkEnabled(true);
+    setShowRejectionForm(false);
+    setRejectionReason('');
+  };
+
   // --- Drag and Drop File Upload States ---
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [uploadDocType, setUploadDocType] = useState<'contract' | 'id' | 'other'>('contract');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailViewRef = useRef<HTMLDivElement>(null);
@@ -266,73 +346,118 @@ export default function TenantsView({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    if (isUploading) return;
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
       processUploadedFile(files[0]);
     }
   };
 
-  const processUploadedFile = (file: File) => {
-    if (!selectedTenant) return;
-    const sizeStr = `${(file.size / 1024).toFixed(1)} KB`;
-    const uploadDate = new Date().toISOString().split('T')[0];
+  const processUploadedFile = async (file: File) => {
+    if (!selectedTenant) {
+      showToast('Please select a resident record first before uploading documents.', 'warning');
+      return;
+    }
 
-    if (uploadDocType === 'contract') {
-      const updated: Tenant = {
-        ...selectedTenant,
-        contractFileName: file.name,
-        contractVerified: undefined
-      };
-      onUpdateTenant(updated);
-      onAddActivity(
-        'tenant',
-        'Uploaded Lease Contract',
-        `Admin uploaded lease contract "${file.name}" (${sizeStr}) for resident ${selectedTenant.name}.`
-      );
-    } else if (uploadDocType === 'id') {
-      const updated: Tenant = {
-        ...selectedTenant,
-        idDocumentUrl: file.name,
-        idDocumentVerified: undefined
-      };
-      onUpdateTenant(updated);
-      onAddActivity(
-        'tenant',
-        'Uploaded ID Document',
-        `Admin uploaded ID document "${file.name}" (${sizeStr}) for resident ${selectedTenant.name}.`
-      );
-    } else {
-      const newDoc = {
-        name: file.name,
-        uploadedAt: uploadDate,
-        size: sizeStr
-      };
-      const currentDocs = selectedTenant.additionalDocs || [];
-      const updated: Tenant = {
-        ...selectedTenant,
-        additionalDocs: [...currentDocs, newDoc]
-      };
-      onUpdateTenant(updated);
-      onAddActivity(
-        'tenant',
-        'Uploaded Compliance Document',
-        `Admin uploaded additional document "${file.name}" (${sizeStr}) for resident ${selectedTenant.name}.`
-      );
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error || `Upload failed (Status ${res.status})`);
+      }
+
+      const result = await res.json();
+      const fileUrl = result.url;
+      const downloadUrl = result.downloadUrl || result.url;
+      const originalName = result.name || file.name;
+      const sizeStr = result.size || `${(file.size / 1024).toFixed(1)} KB`;
+      const uploadDate = result.uploadedAt || new Date().toISOString().split('T')[0];
+
+      if (uploadDocType === 'contract') {
+        const updated: Tenant = {
+          ...selectedTenant,
+          contractFileName: originalName,
+          contractUrl: fileUrl,
+          contractDownloadUrl: downloadUrl,
+          contractVerified: undefined
+        };
+        onUpdateTenant(updated);
+        showToast(`Uploaded lease contract "${originalName}" successfully.`, 'success');
+        onAddActivity(
+          'tenant',
+          'Uploaded Lease Contract',
+          `Admin uploaded lease contract "${originalName}" (${sizeStr}) for resident ${selectedTenant.name}.`
+        );
+      } else if (uploadDocType === 'id') {
+        const updated: Tenant = {
+          ...selectedTenant,
+          idDocumentUrl: fileUrl,
+          idDocumentDownloadUrl: downloadUrl,
+          idDocumentVerified: undefined
+        };
+        onUpdateTenant(updated);
+        showToast(`Uploaded ID document "${originalName}" successfully.`, 'success');
+        onAddActivity(
+          'tenant',
+          'Uploaded ID Document',
+          `Admin uploaded ID document "${originalName}" (${sizeStr}) for resident ${selectedTenant.name}.`
+        );
+      } else {
+        const newDoc = {
+          name: originalName,
+          uploadedAt: uploadDate,
+          size: sizeStr,
+          url: fileUrl,
+          downloadUrl,
+          fileType: result.type || file.type
+        };
+        const currentDocs = selectedTenant.additionalDocs || [];
+        const updated: Tenant = {
+          ...selectedTenant,
+          additionalDocs: [...currentDocs, newDoc]
+        };
+        onUpdateTenant(updated);
+        showToast(`Uploaded compliance document "${originalName}" successfully.`, 'success');
+        onAddActivity(
+          'tenant',
+          'Uploaded Compliance Document',
+          `Admin uploaded additional document "${originalName}" (${sizeStr}) for resident ${selectedTenant.name}.`
+        );
+      }
+    } catch (err: any) {
+      console.error('File upload error:', err);
+      showToast(`Upload failed: ${err.message || 'Server error'}`, 'error');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const handleDeleteAdditionalDoc = (docName: string) => {
+  const handleDeleteAdditionalDoc = (indexToDelete: number, docName?: string) => {
     if (!selectedTenant) return;
     const currentDocs = selectedTenant.additionalDocs || [];
+    const targetDoc = currentDocs[indexToDelete];
+    const name = docName || targetDoc?.name || 'document';
     const updated: Tenant = {
       ...selectedTenant,
-      additionalDocs: currentDocs.filter(d => d.name !== docName)
+      additionalDocs: currentDocs.filter((_, idx) => idx !== indexToDelete)
     };
     onUpdateTenant(updated);
+    showToast(`Removed "${name}" from vault records.`, 'info');
     onAddActivity(
       'tenant',
       'Deleted Compliance Document',
-      `Admin deleted additional document "${docName}" from ${selectedTenant.name}'s profile.`
+      `Admin deleted additional document "${name}" from ${selectedTenant.name}'s profile.`
     );
   };
 
@@ -847,7 +972,7 @@ export default function TenantsView({
                         {isExpanded && (
                           <tr className="bg-[#FAF9F6] border-t border-b border-brand-border/60">
                             <td colSpan={5} className="px-6 py-5">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in text-brand-dark">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in text-brand-dark">
                                 
                                 {/* Col 1: Resident Mini-Profile */}
                                 <div className="space-y-4">
@@ -899,7 +1024,127 @@ export default function TenantsView({
                                   </div>
                                 </div>
 
-                                {/* Col 2: Recent Invoice History */}
+                                {/* Col 2: Uploaded Documents & Filelist */}
+                                <div className="space-y-4">
+                                  <div className="flex items-center justify-between pb-2 border-b border-brand-border/60">
+                                    <div className="flex items-center space-x-2">
+                                      <Paperclip className="h-4 w-4 text-brand-primary" />
+                                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-brand-stone font-mono">Uploaded Documents</h4>
+                                    </div>
+                                    <span className="text-[9px] font-bold bg-brand-surface border border-brand-border text-brand-secondary px-2 py-0.5 rounded-full font-mono">
+                                      {(t.idDocumentUrl ? 1 : 0) + (t.contractFileName ? 1 : 1) + (t.additionalDocs?.length || 0)} files
+                                    </span>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {/* Government ID */}
+                                    <div className="p-2.5 bg-white border border-brand-border/50 rounded-xl flex items-center justify-between text-[11px]">
+                                      <div className="min-w-0 pr-2">
+                                        <p className="text-[9px] font-bold text-brand-stone uppercase">Government ID</p>
+                                        <p className="font-bold text-brand-dark truncate">{t.idDocumentUrl || 'No ID on file'}</p>
+                                        <span className={`text-[9px] font-bold ${
+                                          t.idDocumentVerified === true 
+                                            ? 'text-emerald-700' 
+                                            : t.idDocumentVerified === false 
+                                            ? 'text-rose-700' 
+                                            : t.idDocumentUrl 
+                                            ? 'text-amber-700' 
+                                            : 'text-brand-stone'
+                                        }`}>
+                                          {t.idDocumentUrl ? (t.idDocumentVerified === true ? 'Verified' : t.idDocumentVerified === false ? 'Rejected' : 'Pending Verification') : 'Missing'}
+                                        </span>
+                                      </div>
+                                      {t.idDocumentUrl && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSelectTenant(t.id);
+                                            openDocumentPreview(
+                                              t.idDocumentUrl.split('/').pop()?.replace(/^\d+-/, '') || t.idDocumentUrl,
+                                              'id',
+                                              t.idDocumentUrl,
+                                              undefined,
+                                              undefined,
+                                              undefined,
+                                              t.idDocumentDownloadUrl
+                                            );
+                                          }}
+                                          className="px-2 py-1 bg-brand-surface hover:bg-brand-bg border border-brand-border text-brand-secondary rounded text-[10px] font-bold cursor-pointer shrink-0"
+                                        >
+                                          Inspect
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {/* Lease Contract */}
+                                    <div className="p-2.5 bg-white border border-brand-border/50 rounded-xl flex items-center justify-between text-[11px]">
+                                      <div className="min-w-0 pr-2">
+                                        <p className="text-[9px] font-bold text-brand-stone uppercase">Lease Contract</p>
+                                        <p className="font-bold text-brand-dark truncate">{t.contractFileName || 'lease_agreement_draft.pdf'}</p>
+                                        <span className={`text-[9px] font-bold ${t.contractVerified ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                          {t.contractVerified ? 'Signed & Countersigned' : 'Draft / Awaiting Sign'}
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleSelectTenant(t.id);
+                                          openDocumentPreview(
+                                            t.contractFileName || 'lease_agreement.pdf',
+                                            'contract',
+                                            t.contractUrl,
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            t.contractDownloadUrl
+                                          );
+                                        }}
+                                        className="px-2 py-1 bg-brand-surface hover:bg-brand-bg border border-brand-border text-brand-secondary rounded text-[10px] font-bold cursor-pointer shrink-0"
+                                      >
+                                        Inspect
+                                      </button>
+                                    </div>
+
+                                    {/* Additional Compliance Documents */}
+                                    {t.additionalDocs && t.additionalDocs.length > 0 ? (
+                                      t.additionalDocs.map((doc, idx) => (
+                                        <div key={idx} className="p-2.5 bg-white border border-brand-border/50 rounded-xl flex items-center justify-between text-[11px]">
+                                          <div className="min-w-0 pr-2">
+                                            <p className="text-[9px] font-bold text-brand-stone uppercase">Compliance Document</p>
+                                            <p className="font-bold text-brand-dark truncate" title={doc.name}>{doc.name}</p>
+                                            <p className="text-[9px] text-brand-stone font-mono">{doc.uploadedAt} {doc.size ? `• ${doc.size}` : ''}</p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleSelectTenant(t.id);
+                                              openDocumentPreview(
+                                                doc.name,
+                                                'other',
+                                                doc.url,
+                                                doc.fileType,
+                                                doc.size,
+                                                doc.uploadedAt,
+                                                doc.downloadUrl
+                                              );
+                                            }}
+                                            className="px-2 py-1 bg-brand-surface hover:bg-brand-bg border border-brand-border text-brand-secondary rounded text-[10px] font-bold cursor-pointer shrink-0"
+                                          >
+                                            Inspect
+                                          </button>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div className="p-2 bg-white/60 border border-dashed border-brand-border/60 rounded-xl text-center">
+                                        <p className="text-[10px] text-brand-stone italic">No additional files uploaded.</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Col 3: Recent Invoice History */}
                                 <div className="space-y-4">
                                   <div className="flex items-center space-x-2 pb-2 border-b border-brand-border/60">
                                     <FileText className="h-4 w-4 text-brand-primary" />
@@ -936,7 +1181,7 @@ export default function TenantsView({
                                   </div>
                                 </div>
 
-                                {/* Col 3: Active Support Tickets */}
+                                {/* Col 4: Active Support Tickets */}
                                 <div className="space-y-4">
                                   <div className="flex items-center space-x-2 pb-2 border-b border-brand-border/60">
                                     <AlertTriangle className="h-4 w-4 text-brand-primary" />
@@ -1214,7 +1459,7 @@ export default function TenantsView({
               <div className="flex items-center justify-between">
                 <h5 className="text-[10px] uppercase font-bold text-brand-stone tracking-wider">Document & Contract Vault</h5>
                 <span className="text-[9px] font-bold bg-brand-primary text-[#F9F8F6] px-2.5 py-1 rounded-full font-mono whitespace-nowrap shrink-0">
-                  {2 + (selectedTenant.additionalDocs?.length || 0)} Documents
+                  {(selectedTenant.idDocumentUrl ? 1 : 0) + 1 + (selectedTenant.additionalDocs?.length || 0)} Documents
                 </span>
               </div>
 
@@ -1227,44 +1472,58 @@ export default function TenantsView({
                       <ShieldCheck className="h-4.5 w-4.5 text-brand-primary shrink-0" />
                     ) : selectedTenant.idDocumentVerified === false ? (
                       <AlertTriangle className="h-4.5 w-4.5 text-rose-600 shrink-0" />
-                    ) : (
+                    ) : selectedTenant.idDocumentUrl ? (
                       <Clock className="h-4.5 w-4.5 text-amber-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="h-4.5 w-4.5 text-brand-stone shrink-0" />
                     )}
                     <div className="min-w-0">
                       <p className="text-[11px] font-bold text-brand-stone uppercase tracking-wider">Government ID</p>
-                      <p className="text-xs font-semibold text-brand-dark truncate">{selectedTenant.idDocumentUrl}</p>
-                      {selectedTenant.idDocumentVerified === true ? (
-                        <p className="text-[9px] text-brand-primary font-bold flex items-center gap-1">
-                          Approved & Verified
-                        </p>
-                      ) : selectedTenant.idDocumentVerified === false ? (
-                        <p className="text-[9px] text-rose-700 font-bold flex items-center gap-1">
-                          Rejected / Action Needed
-                        </p>
+                      <p className="text-xs font-semibold text-brand-dark truncate">
+                        {selectedTenant.idDocumentUrl ? (
+                          selectedTenant.idDocumentUrl.split('/').pop()?.replace(/^\d+-/, '') || selectedTenant.idDocumentUrl
+                        ) : (
+                          <span className="text-brand-stone italic font-normal">No ID document uploaded yet</span>
+                        )}
+                      </p>
+                      {selectedTenant.idDocumentUrl ? (
+                        selectedTenant.idDocumentVerified === true ? (
+                          <p className="text-[9px] text-brand-primary font-bold flex items-center gap-1">
+                            Approved & Verified
+                          </p>
+                        ) : selectedTenant.idDocumentVerified === false ? (
+                          <p className="text-[9px] text-rose-700 font-bold flex items-center gap-1">
+                            Rejected / Action Needed
+                          </p>
+                        ) : (
+                          <p className="text-[9px] text-amber-700 font-semibold flex items-center gap-1">
+                            Awaiting Verification
+                          </p>
+                        )
                       ) : (
-                        <p className="text-[9px] text-amber-700 font-semibold flex items-center gap-1">
-                          Awaiting Verification
-                        </p>
+                        <p className="text-[9px] text-brand-stone italic">Upload via selector below</p>
                       )}
                     </div>
                   </div>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setActivePreviewDoc({
-                        fileName: selectedTenant.idDocumentUrl,
-                        docType: 'id'
-                      });
-                      setZoomLevel(100);
-                      setRotation(0);
-                      setWatermarkEnabled(true);
-                      setShowRejectionForm(false);
-                      setRejectionReason('');
-                    }}
-                    className="text-[10px] font-bold text-brand-secondary hover:text-brand-primary bg-brand-surface border border-brand-border px-2.5 py-1 rounded-lg transition-all cursor-pointer shrink-0"
-                  >
-                    Inspect
-                  </button>
+                  {selectedTenant.idDocumentUrl && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        openDocumentPreview(
+                          selectedTenant.idDocumentUrl.split('/').pop()?.replace(/^\d+-/, '') || selectedTenant.idDocumentUrl,
+                          'id',
+                          selectedTenant.idDocumentUrl,
+                          undefined,
+                          undefined,
+                          undefined,
+                          selectedTenant.idDocumentDownloadUrl
+                        );
+                      }}
+                      className="text-[10px] font-bold text-brand-secondary hover:text-brand-primary bg-brand-surface border border-brand-border px-2.5 py-1 rounded-lg transition-all cursor-pointer shrink-0"
+                    >
+                      Inspect
+                    </button>
+                  )}
                 </div>
 
                 {/* Lease Contract */}
@@ -1304,15 +1563,15 @@ export default function TenantsView({
                   <button 
                     type="button"
                     onClick={() => {
-                      setActivePreviewDoc({
-                        fileName: selectedTenant.contractFileName || 'lease_agreement.pdf',
-                        docType: 'contract'
-                      });
-                      setZoomLevel(100);
-                      setRotation(0);
-                      setWatermarkEnabled(true);
-                      setShowRejectionForm(false);
-                      setRejectionReason('');
+                      openDocumentPreview(
+                        selectedTenant.contractFileName || 'lease_agreement.pdf',
+                        'contract',
+                        selectedTenant.contractUrl,
+                        undefined,
+                        undefined,
+                        undefined,
+                        selectedTenant.contractDownloadUrl
+                      );
                     }}
                     className="text-[10px] font-bold text-brand-secondary hover:text-brand-primary bg-brand-surface border border-brand-border px-2.5 py-1 rounded-lg transition-all cursor-pointer shrink-0"
                   >
@@ -1343,15 +1602,15 @@ export default function TenantsView({
                         <button 
                           type="button"
                           onClick={() => {
-                            setActivePreviewDoc({
-                              fileName: doc.name,
-                              docType: 'id' // View as non-contract/generic preview
-                            });
-                            setZoomLevel(100);
-                            setRotation(0);
-                            setWatermarkEnabled(true);
-                            setShowRejectionForm(false);
-                            setRejectionReason('');
+                            openDocumentPreview(
+                              doc.name,
+                              'other',
+                              doc.url,
+                              doc.fileType,
+                              doc.size,
+                              doc.uploadedAt,
+                              doc.downloadUrl
+                            );
                           }}
                           className="text-[10px] font-bold text-brand-secondary hover:text-brand-primary bg-brand-surface border border-brand-border px-2 py-1 rounded-lg transition-all cursor-pointer"
                         >
@@ -1359,7 +1618,7 @@ export default function TenantsView({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteAdditionalDoc(doc.name)}
+                          onClick={() => handleDeleteAdditionalDoc(idx, doc.name)}
                           className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-100 transition-colors cursor-pointer"
                           title="Delete document"
                         >
@@ -1368,7 +1627,11 @@ export default function TenantsView({
                       </div>
                     </div>
                   ))
-                ) : null}
+                ) : (
+                  <div className="p-3 bg-white/70 border border-dashed border-brand-border rounded-xl text-center">
+                    <p className="text-[11px] text-brand-stone italic">No additional compliance files uploaded yet.</p>
+                  </div>
+                )}
               </div>
 
               {/* 2. Drag & Drop Upload Zone */}
@@ -1424,17 +1687,24 @@ export default function TenantsView({
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all duration-200 select-none ${
-                    isDragging
-                      ? 'border-brand-primary bg-brand-surface/70 scale-[0.99] shadow-inner'
-                      : 'border-brand-border hover:border-brand-primary hover:bg-white bg-white/50'
+                  onClick={() => {
+                    if (!isUploading) {
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-5 text-center transition-all duration-200 select-none ${
+                    isUploading
+                      ? 'border-brand-primary bg-brand-surface/40 cursor-wait'
+                      : isDragging
+                      ? 'border-brand-primary bg-brand-surface/70 scale-[0.99] shadow-inner cursor-pointer'
+                      : 'border-brand-border hover:border-brand-primary hover:bg-white bg-white/50 cursor-pointer'
                   }`}
                 >
                   {/* Hidden Input for Click Trigger */}
                   <input
                     ref={fileInputRef}
                     type="file"
+                    disabled={isUploading}
                     accept=".pdf,.doc,.docx,image/*"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -1445,89 +1715,229 @@ export default function TenantsView({
                     className="hidden"
                   />
 
-                  <div className="flex flex-col items-center space-y-1.5">
-                    <UploadCloud className={`h-8 w-8 transition-transform ${isDragging ? 'text-brand-primary scale-110 animate-pulse' : 'text-brand-stone'}`} />
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-bold text-brand-dark">
-                        {isDragging ? "Drop your file here!" : "Drag & drop files here"}
-                      </p>
-                      <p className="text-[10px] text-brand-stone font-medium">
-                        or <span className="text-brand-primary font-bold">browse your computer</span>
+                  {isUploading ? (
+                    <div className="flex flex-col items-center space-y-2 py-2">
+                      <Loader2 className="h-8 w-8 text-brand-primary animate-spin" />
+                      <div className="space-y-0.5">
+                        <p className="text-xs font-bold text-brand-primary">Uploading & verifying file...</p>
+                        <p className="text-[10px] text-brand-stone font-medium">Securing file into Vault & updating database</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center space-y-1.5">
+                      <UploadCloud className={`h-8 w-8 transition-transform ${isDragging ? 'text-brand-primary scale-110 animate-pulse' : 'text-brand-stone'}`} />
+                      <div className="space-y-0.5">
+                        <p className="text-xs font-bold text-brand-dark">
+                          {isDragging ? "Drop your file here!" : "Drag & drop files here"}
+                        </p>
+                        <p className="text-[10px] text-brand-stone font-medium">
+                          or <span className="text-brand-primary font-bold">browse your computer</span>
+                        </p>
+                      </div>
+                      <p className="text-[9px] text-brand-stone font-medium pt-1">
+                        Supports PDF, DOC, DOCX or Images up to 25MB
                       </p>
                     </div>
-                    <p className="text-[9px] text-brand-stone font-medium pt-1">
-                      Supports PDF, DOC, DOCX or Images up to 25MB
-                    </p>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* Financial Parameters */}
             <div className="space-y-3 bg-brand-surface/50 p-4 rounded-xl border border-brand-border">
-              <h5 className="text-[10px] uppercase font-bold text-brand-stone tracking-wider">Lease Configuration & Rates</h5>
-              
-              <div className="divide-y divide-brand-border text-xs">
-                {/* Monthly Rent */}
-                <div className="flex justify-between py-2">
-                  <span className="text-brand-secondary font-medium">Base Room Rent</span>
-                  <span className="font-bold text-brand-dark font-mono">€{selectedTenant.monthlyRent.toFixed(2)}/mo</span>
-                </div>
-
-                {/* Extra Person Surcharge */}
-                <div className="flex justify-between py-2 items-center">
-                  <div className="space-y-0.5">
-                    <span className="text-brand-secondary flex items-center gap-1">
-                      Extra Person Surcharge 
-                      <span className="text-[10px] font-bold text-brand-stone">(€85.00/mo)</span>
-                    </span>
-                    {selectedTenant.hasExtraPerson && (
-                      <p className="text-[10px] text-brand-primary font-medium font-serif italic">Co-occupant active</p>
-                    )}
-                  </div>
+              <div className="flex items-center justify-between">
+                <h5 className="text-[10px] uppercase font-bold text-brand-stone tracking-wider">
+                  {isEditingPrices ? "Edit Lease Configuration & Rates" : "Lease Configuration & Rates"}
+                </h5>
+                {!isEditingPrices ? (
                   <button
-                    onClick={handleToggleExtraPerson}
-                    className="text-brand-secondary hover:text-brand-primary transition-colors cursor-pointer"
-                    title={selectedTenant.hasExtraPerson ? "Disable surcharge" : "Enable surcharge"}
+                    type="button"
+                    onClick={() => {
+                      setEditMonthlyRent(selectedTenant.monthlyRent || 0);
+                      setEditDepositAmount(selectedTenant.depositAmount || 0);
+                      setEditDepositStatus(selectedTenant.depositStatus || 'Pending');
+                      setEditAdminFee(selectedTenant.oneTimeAdminFee ?? 90);
+                      setIsEditingPrices(true);
+                    }}
+                    className="px-2.5 py-1 text-[10px] font-bold text-brand-primary hover:bg-brand-surface rounded-lg border border-brand-border flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Edit monthly rent, security deposit and move-in fees"
                   >
-                    {selectedTenant.hasExtraPerson ? (
-                      <ToggleRight className="h-6 w-6 text-brand-primary" />
-                    ) : (
-                      <ToggleLeft className="h-6 w-6 text-brand-stone" />
-                    )}
+                    <Pencil className="h-3 w-3" />
+                    <span>Edit Prices</span>
                   </button>
-                </div>
-
-                {/* Deposit Calculator */}
-                <div className="flex justify-between py-2.5">
-                  <div className="space-y-0.5">
-                    <span className="text-brand-secondary">Security Deposit Status</span>
-                    <p className="text-[9px] text-brand-stone font-medium">
-                      {getDepositRuleText(selectedTenant.contractLengthMonths)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-brand-dark font-mono">€{selectedTenant.depositAmount.toFixed(2)}</span>
-                    <span className={`block text-[9px] font-extrabold ${
-                      selectedTenant.depositStatus === 'Paid' ? 'text-brand-primary' : 'text-amber-600'
-                    }`}>
-                      {selectedTenant.depositStatus}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Move in Admin Fee */}
-                <div className="flex justify-between py-2">
-                  <div className="space-y-0.5">
-                    <span className="text-brand-secondary">One-time Move-in Fee</span>
-                    <p className="text-[9px] text-brand-stone font-medium">Standard institutional setup</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-brand-dark font-mono">€{selectedTenant.oneTimeAdminFee.toFixed(2)}</span>
-                    <span className="block text-[9px] text-brand-primary font-extrabold font-serif italic">Billed (One-time)</span>
-                  </div>
-                </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingPrices(false)}
+                    className="text-[10px] font-bold text-brand-stone hover:text-brand-dark cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
+              
+              {!isEditingPrices ? (
+                <div className="divide-y divide-brand-border text-xs">
+                  {/* Monthly Rent */}
+                  <div className="flex justify-between py-2">
+                    <span className="text-brand-secondary font-medium">Base Room Rent</span>
+                    <span className="font-bold text-brand-dark font-mono">€{selectedTenant.monthlyRent.toFixed(2)}/mo</span>
+                  </div>
+
+                  {/* Extra Person Surcharge */}
+                  <div className="flex justify-between py-2 items-center">
+                    <div className="space-y-0.5">
+                      <span className="text-brand-secondary flex items-center gap-1">
+                        Extra Person Surcharge 
+                        <span className="text-[10px] font-bold text-brand-stone">(€85.00/mo)</span>
+                      </span>
+                      {selectedTenant.hasExtraPerson && (
+                        <p className="text-[10px] text-brand-primary font-medium font-serif italic">Co-occupant active</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleToggleExtraPerson}
+                      className="text-brand-secondary hover:text-brand-primary transition-colors cursor-pointer"
+                      title={selectedTenant.hasExtraPerson ? "Disable surcharge" : "Enable surcharge"}
+                    >
+                      {selectedTenant.hasExtraPerson ? (
+                        <ToggleRight className="h-6 w-6 text-brand-primary" />
+                      ) : (
+                        <ToggleLeft className="h-6 w-6 text-brand-stone" />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Deposit Calculator */}
+                  <div className="flex justify-between py-2.5">
+                    <div className="space-y-0.5">
+                      <span className="text-brand-secondary">Security Deposit Status</span>
+                      <p className="text-[9px] text-brand-stone font-medium">
+                        {getDepositRuleText(selectedTenant.contractLengthMonths)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-brand-dark font-mono">€{selectedTenant.depositAmount.toFixed(2)}</span>
+                      <span className={`block text-[9px] font-extrabold ${
+                        selectedTenant.depositStatus === 'Paid' ? 'text-brand-primary' : 'text-amber-600'
+                      }`}>
+                        {selectedTenant.depositStatus}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Move in Admin Fee */}
+                  <div className="flex justify-between py-2">
+                    <div className="space-y-0.5">
+                      <span className="text-brand-secondary">One-time Move-in Fee</span>
+                      <p className="text-[9px] text-brand-stone font-medium">Standard institutional setup</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-brand-dark font-mono">€{selectedTenant.oneTimeAdminFee.toFixed(2)}</span>
+                      <span className="block text-[9px] text-brand-primary font-extrabold font-serif italic">Billed (One-time)</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSavePrices} className="space-y-3 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    {/* Base Monthly Rent */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-brand-stone uppercase">Monthly Rent (€)</label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-brand-stone font-bold text-xs pointer-events-none">€</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          required
+                          value={editMonthlyRent}
+                          onChange={(e) => setEditMonthlyRent(parseFloat(e.target.value) || 0)}
+                          className="w-full pl-6 pr-3 py-1.5 bg-white border border-brand-border rounded-lg text-xs font-mono font-bold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Deposit Amount */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-[10px] font-bold text-brand-stone uppercase">Security Deposit (€)</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const mult = (selectedTenant.contractLengthMonths || 6) < 6 ? 1.5 : 2;
+                            setEditDepositAmount(parseFloat((editMonthlyRent * mult).toFixed(2)));
+                          }}
+                          className="text-[9px] text-brand-primary hover:underline font-semibold cursor-pointer"
+                          title="Auto calculate deposit from monthly rent"
+                        >
+                          Auto ({(selectedTenant.contractLengthMonths || 6) < 6 ? '1.5x' : '2x'})
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-brand-stone font-bold text-xs pointer-events-none">€</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          required
+                          value={editDepositAmount}
+                          onChange={(e) => setEditDepositAmount(parseFloat(e.target.value) || 0)}
+                          className="w-full pl-6 pr-3 py-1.5 bg-white border border-brand-border rounded-lg text-xs font-mono font-bold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Deposit Status */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-brand-stone uppercase">Deposit Status</label>
+                      <select
+                        value={editDepositStatus}
+                        onChange={(e) => setEditDepositStatus(e.target.value as any)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-brand-border rounded-lg text-xs font-bold text-brand-dark focus:outline-none"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Paid">Paid</option>
+                        <option value="Unpaid">Unpaid</option>
+                        <option value="Refunded">Refunded</option>
+                      </select>
+                    </div>
+
+                    {/* Move-in Admin Fee */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-brand-stone uppercase">Move-in Admin Fee (€)</label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-brand-stone font-bold text-xs pointer-events-none">€</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          required
+                          value={editAdminFee}
+                          onChange={(e) => setEditAdminFee(parseFloat(e.target.value) || 0)}
+                          className="w-full pl-6 pr-3 py-1.5 bg-white border border-brand-border rounded-lg text-xs font-mono font-bold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end items-center gap-2 pt-2 border-t border-brand-border/60">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingPrices(false)}
+                      className="px-3 py-1.5 border border-brand-border text-brand-secondary hover:bg-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors shadow-xs"
+                    >
+                      Save Lease Prices
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
 
             {/* Active Add-on services */}
@@ -1867,95 +2277,150 @@ export default function TenantsView({
       </div>
 
       {/* Document Vault Modal Dialog */}
-      {activePreviewDoc && selectedTenant && (
-        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 md:p-6 z-50 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl border border-brand-border max-w-6xl w-full h-[90vh] md:h-[85vh] flex flex-col md:flex-row overflow-hidden shadow-2xl animate-scale-up">
-            
-            {/* Left: Document Viewport Area */}
-            <div className="flex-1 bg-slate-900 flex flex-col min-w-0 border-b md:border-b-0 md:border-r border-brand-border">
-              {/* Document Toolbar */}
-              <div className="bg-slate-800 px-4 py-3 flex items-center justify-between gap-4 border-b border-slate-700 shrink-0">
-                <div className="flex items-center space-x-2 min-w-0">
-                  <div className="p-1.5 bg-brand-surface text-brand-primary border border-brand-border rounded-lg shrink-0">
-                    {activePreviewDoc.docType === 'id' ? (
-                      <User className="h-4 w-4" />
-                    ) : (
-                      <FileText className="h-4 w-4" />
-                    )}
+      {activePreviewDoc && selectedTenant && (() => {
+        const isRealFile = Boolean(
+          activePreviewDoc.fileUrl && (
+            activePreviewDoc.fileUrl.startsWith('/') ||
+            activePreviewDoc.fileUrl.startsWith('http://') ||
+            activePreviewDoc.fileUrl.startsWith('https://') ||
+            activePreviewDoc.fileUrl.startsWith('data:')
+          )
+        );
+        const isPdf = Boolean(
+          (activePreviewDoc.fileUrl && activePreviewDoc.fileUrl.toLowerCase().includes('.pdf')) ||
+          (activePreviewDoc.fileName && activePreviewDoc.fileName.toLowerCase().endsWith('.pdf')) ||
+          activePreviewDoc.fileType?.includes('pdf') ||
+          activePreviewDoc.fileUrl?.startsWith('data:application/pdf')
+        );
+        const isImage = Boolean(
+          (activePreviewDoc.fileUrl && /\.(png|jpe?g|webp|gif|svg)$/i.test(activePreviewDoc.fileUrl)) ||
+          (activePreviewDoc.fileName && /\.(png|jpe?g|webp|gif|svg)$/i.test(activePreviewDoc.fileName)) ||
+          activePreviewDoc.fileType?.startsWith('image/') ||
+          activePreviewDoc.fileUrl?.startsWith('data:image/')
+        );
+
+        const handlePrint = () => {
+          if (activePreviewDoc.fileUrl) {
+            const printWin = window.open(activePreviewDoc.fileUrl, '_blank');
+            if (printWin) {
+              printWin.focus();
+            } else {
+              window.print();
+            }
+          } else {
+            window.print();
+          }
+        };
+
+        const handleDownload = async () => {
+          if (activePreviewDoc.fileUrl) {
+            // Use the dedicated download URL (Cloudinary fl_attachment) if available —
+            // it instructs Cloudinary to serve the file with the correct filename + extension.
+            const url = activePreviewDoc.downloadUrl || activePreviewDoc.fileUrl;
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = activePreviewDoc.fileName;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast(`Exported "${activePreviewDoc.fileName}" to local directory.`, 'success');
+          } else {
+            showToast(`Document archived for resident ${selectedTenant.name}.`, 'info');
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 md:p-6 z-50 backdrop-blur-xs animate-fade-in">
+            <div className="bg-white rounded-3xl border border-brand-border max-w-6xl w-full h-[90vh] md:h-[85vh] flex flex-col md:flex-row overflow-hidden shadow-2xl animate-scale-up">
+              
+              {/* Left: Document Viewport Area */}
+              <div className="flex-1 bg-slate-900 flex flex-col min-w-0 border-b md:border-b-0 md:border-r border-brand-border">
+                {/* Document Toolbar */}
+                <div className="bg-slate-800 px-4 py-3 flex items-center justify-between gap-4 border-b border-slate-700 shrink-0">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <div className="p-1.5 bg-brand-surface text-brand-primary border border-brand-border rounded-lg shrink-0">
+                      {activePreviewDoc.docType === 'id' ? (
+                        <User className="h-4 w-4" />
+                      ) : (
+                        <FileText className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-bold text-white truncate font-mono">{activePreviewDoc.fileName}</h4>
+                      <p className="text-[9px] text-slate-400 font-medium">
+                        {isRealFile ? "Real Document Inspection • Secure Previewer" : "Document Vault Secure Previewer (Audit Template)"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h4 className="text-xs font-bold text-white truncate font-mono">{activePreviewDoc.fileName}</h4>
-                    <p className="text-[9px] text-slate-400 font-medium">Document Vault Secure Previewer (No-Download Verification)</p>
+
+                  {/* Toolbar controls */}
+                  <div className="flex items-center space-x-1 sm:space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setZoomLevel(prev => Math.max(50, prev - 25))}
+                      title="Zoom Out"
+                      className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <ZoomOut className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="text-[10px] font-bold text-slate-300 font-mono w-10 text-center select-none">
+                      {zoomLevel}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setZoomLevel(prev => Math.min(200, prev + 25))}
+                      title="Zoom In"
+                      className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <ZoomIn className="h-3.5 w-3.5" />
+                    </button>
+                    
+                    <div className="h-4 w-px bg-slate-700 mx-1 hidden sm:block"></div>
+
+                    <button
+                      type="button"
+                      onClick={() => setRotation(prev => (prev + 90) % 360)}
+                      title="Rotate 90°"
+                      className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <RotateCw className="h-3.5 w-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setWatermarkEnabled(!watermarkEnabled)}
+                      title="Toggle Watermark"
+                      className={`p-1.5 border rounded-lg transition-colors cursor-pointer hidden sm:block ${
+                        watermarkEnabled 
+                          ? 'bg-brand-primary border-brand-primary text-white' 
+                          : 'bg-slate-700 border-slate-600 text-slate-400'
+                      }`}
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                    </button>
+
+                    <div className="h-4 w-px bg-slate-700 mx-1 hidden sm:block"></div>
+
+                    <button
+                      type="button"
+                      onClick={handlePrint}
+                      title="Print Document"
+                      className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      title="Download Document"
+                      className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
-
-                {/* Toolbar controls */}
-                <div className="flex items-center space-x-1 sm:space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setZoomLevel(prev => Math.max(50, prev - 25))}
-                    title="Zoom Out"
-                    className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <ZoomOut className="h-3.5 w-3.5" />
-                  </button>
-                  <span className="text-[10px] font-bold text-slate-300 font-mono w-10 text-center select-none">
-                    {zoomLevel}%
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setZoomLevel(prev => Math.min(200, prev + 25))}
-                    title="Zoom In"
-                    className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <ZoomIn className="h-3.5 w-3.5" />
-                  </button>
-                  
-                  <div className="h-4 w-px bg-slate-700 mx-1 hidden sm:block"></div>
-
-                  <button
-                    type="button"
-                    onClick={() => setRotation(prev => (prev + 90) % 360)}
-                    title="Rotate 90°"
-                    className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <RotateCw className="h-3.5 w-3.5" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setWatermarkEnabled(!watermarkEnabled)}
-                    title="Toggle Watermark"
-                    className={`p-1.5 border rounded-lg transition-colors cursor-pointer hidden sm:block ${
-                      watermarkEnabled 
-                        ? 'bg-brand-primary border-brand-primary text-white' 
-                        : 'bg-slate-700 border-slate-600 text-slate-400'
-                    }`}
-                  >
-                    <Shield className="h-3.5 w-3.5" />
-                  </button>
-
-                  <div className="h-4 w-px bg-slate-700 mx-1 hidden sm:block"></div>
-
-                  <button
-                    type="button"
-                    onClick={() => showToast(`Secure watermarked print job dispatched for audit logging by ${selectedTenant.name}`, 'info')}
-                    title="Print Document"
-                    className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <Printer className="h-3.5 w-3.5" />
-                  </button>
-                  
-                  <button
-                    type="button"
-                    onClick={() => showToast('Secure watermarked duplicate exported to local directory.', 'info')}
-                    title="Download Document"
-                    className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
 
               {/* Document Canvas Viewer Grid */}
               <div className="flex-1 bg-slate-950 p-6 overflow-auto flex items-center justify-center relative">
@@ -1973,7 +2438,49 @@ export default function TenantsView({
                   </div>
                 )}
 
-                {/* PDF Page Container */}
+                {/* Real File Rendering or Simulated Canvas */}
+                {isRealFile ? (
+                  isPdf ? (
+                    <div className="w-full h-full min-h-[550px] p-2 md:p-4 flex flex-col z-20">
+                      <iframe
+                        src={activePreviewDoc.fileUrl}
+                        className="w-full flex-1 min-h-[550px] rounded-xl border border-slate-700 bg-white shadow-2xl"
+                        title={activePreviewDoc.fileName}
+                      />
+                    </div>
+                  ) : isImage ? (
+                    <div className="w-full h-full flex items-center justify-center p-4 overflow-auto z-20">
+                      <img
+                        src={activePreviewDoc.fileUrl}
+                        alt={activePreviewDoc.fileName}
+                        className="max-w-full max-h-[75vh] object-contain rounded-xl shadow-2xl border border-slate-700"
+                        style={{
+                          transform: `scale(${zoomLevel / 100}) rotate(${rotation}deg)`,
+                          transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center text-slate-200 space-y-4 z-20">
+                      <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700">
+                        <FileText className="h-14 w-14 text-brand-primary" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-white font-mono">{activePreviewDoc.fileName}</h3>
+                        <p className="text-xs text-slate-400 mt-1">Uploaded document ready for compliance verification.</p>
+                      </div>
+                      <a
+                        href={activePreviewDoc.fileUrl}
+                        download={activePreviewDoc.fileName}
+                        className="px-4 py-2 bg-brand-primary hover:bg-brand-primary/90 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download & Open Original File
+                      </a>
+                    </div>
+                  )
+                ) : (
+                /* PDF Page Container */
                 <div 
                   style={{ 
                     transform: `scale(${zoomLevel / 100}) rotate(${rotation}deg)`,
@@ -2190,6 +2697,7 @@ export default function TenantsView({
                     </div>
                   )}
                 </div>
+                )}
               </div>
             </div>
 
@@ -2237,16 +2745,20 @@ export default function TenantsView({
                   <div className="space-y-2 text-[11px] font-semibold divide-y divide-brand-border/60">
                     <div className="flex justify-between py-1">
                       <span className="text-brand-stone">File Type</span>
-                      <span className="text-brand-dark font-mono font-bold">PDF (Portable Document)</span>
+                      <span className="text-brand-dark font-mono font-bold">
+                        {isPdf ? 'PDF (Portable Document)' : isImage ? 'Image Document' : activePreviewDoc.fileType ? activePreviewDoc.fileType.toUpperCase() : 'Compliance Record'}
+                      </span>
                     </div>
                     <div className="flex justify-between py-1.5">
                       <span className="text-brand-stone">File Size</span>
-                      <span className="text-brand-dark font-mono font-bold">1.4 MB</span>
+                      <span className="text-brand-dark font-mono font-bold">
+                        {activePreviewDoc.fileSize || (isRealFile ? 'Uploaded File' : 'Generated Document')}
+                      </span>
                     </div>
                     <div className="flex justify-between py-1.5">
-                      <span className="text-brand-stone">Encryption Hash</span>
-                      <span className="text-brand-stone font-mono text-[9px] truncate max-w-[120px]" title="SHA-256 secure hash checksum">
-                        8f3a12cd99b04fc4...
+                      <span className="text-brand-stone">Vault Status</span>
+                      <span className="text-brand-stone font-mono text-[9px] truncate max-w-[120px]">
+                        {isRealFile ? 'Verified File' : 'Draft / Template'}
                       </span>
                     </div>
                     <div className="flex justify-between py-1.5 items-center">
@@ -2259,7 +2771,7 @@ export default function TenantsView({
                         ) : (
                           <span className="text-[9px] bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 font-extrabold whitespace-nowrap shrink-0">Awaiting Verification</span>
                         )
-                      ) : (
+                      ) : activePreviewDoc.docType === 'contract' ? (
                         selectedTenant.contractVerified === true ? (
                           <span className="text-[9px] bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 font-extrabold whitespace-nowrap shrink-0">Approved ✅</span>
                         ) : selectedTenant.contractVerified === false ? (
@@ -2267,6 +2779,8 @@ export default function TenantsView({
                         ) : (
                           <span className="text-[9px] bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 font-extrabold whitespace-nowrap shrink-0">Awaiting Review</span>
                         )
+                      ) : (
+                        <span className="text-[9px] bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 font-extrabold whitespace-nowrap shrink-0">Active On Record</span>
                       )}
                     </div>
                   </div>
@@ -2288,14 +2802,15 @@ export default function TenantsView({
 
                           const updated: Tenant = {
                             ...selectedTenant,
-                            [activePreviewDoc.docType === 'id' ? 'idDocumentVerified' : 'contractVerified']: true,
+                            ...(activePreviewDoc.docType === 'id' ? { idDocumentVerified: true } : {}),
+                            ...(activePreviewDoc.docType === 'contract' ? { contractVerified: true } : {}),
                             status: willBeFullyVerified && selectedTenant.status === 'Pending' ? 'Checked-In' : selectedTenant.status
                           };
                           onUpdateTenant(updated);
                           onAddActivity(
                             'tenant',
                             'Document Verified',
-                            `Admin approved and verified ${activePreviewDoc.docType === 'id' ? 'Compliance ID Document' : 'Lease Contract'} (${activePreviewDoc.fileName}) for resident ${selectedTenant.name}.${willBeFullyVerified ? ' All onboarding documents verified: Resident status shifted to Checked-In.' : ''}`
+                            `Admin approved and verified ${activePreviewDoc.docType === 'id' ? 'Compliance ID Document' : activePreviewDoc.docType === 'contract' ? 'Lease Contract' : 'Compliance Document'} (${activePreviewDoc.fileName}) for resident ${selectedTenant.name}.${willBeFullyVerified ? ' All onboarding documents verified: Resident status shifted to Checked-In.' : ''}`
                           );
                           setActivePreviewDoc(null);
                           if (willBeFullyVerified) {
@@ -2354,13 +2869,14 @@ export default function TenantsView({
                           }
                           const updated: Tenant = {
                             ...selectedTenant,
-                            [activePreviewDoc.docType === 'id' ? 'idDocumentVerified' : 'contractVerified']: false
+                            ...(activePreviewDoc.docType === 'id' ? { idDocumentVerified: false } : {}),
+                            ...(activePreviewDoc.docType === 'contract' ? { contractVerified: false } : {})
                           };
                           onUpdateTenant(updated);
                           onAddActivity(
                             'tenant',
                             'Document Flagged',
-                            `Admin rejected ${activePreviewDoc.docType === 'id' ? 'Compliance ID' : 'Lease Contract'} (${activePreviewDoc.fileName}) for resident ${selectedTenant.name}. Reason: "${rejectionReason}"`
+                            `Admin rejected ${activePreviewDoc.docType === 'id' ? 'Compliance ID' : activePreviewDoc.docType === 'contract' ? 'Lease Contract' : 'Compliance Document'} (${activePreviewDoc.fileName}) for resident ${selectedTenant.name}. Reason: "${rejectionReason}"`
                           );
                           setActivePreviewDoc(null);
                           showToast(`Document Rejected: Resident flagged with reason: "${rejectionReason}".`, 'warning');
@@ -2388,7 +2904,8 @@ export default function TenantsView({
             </div>
           </div>
         </div>
-      )}
+      );
+    })()}
     </div>
   </div>
 );

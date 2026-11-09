@@ -18,8 +18,11 @@ export interface Tenant {
   contractStartDate: string;
   contractEndDate: string;
   contractLengthMonths: number; // calculated contract length
-  idDocumentUrl: string; // mock document
-  contractFileName?: string; // uploaded contract file
+  idDocumentUrl: string; // document URL or filename
+  idDocumentDownloadUrl?: string; // Cloudinary fl_attachment URL for download
+  contractFileName?: string; // uploaded contract file display name
+  contractUrl?: string; // uploaded contract file URL or data URL
+  contractDownloadUrl?: string; // Cloudinary fl_attachment URL for download
   hasExtraPerson: boolean; // extra person surcharge (€85/mo)
   extraPersonName?: string;
   depositStatus: 'Paid' | 'Unpaid' | 'Refunded' | 'Pending';
@@ -29,7 +32,7 @@ export interface Tenant {
   activeAddOns: string[]; // list of add-on names
   idDocumentVerified?: boolean;
   contractVerified?: boolean;
-  additionalDocs?: { name: string; uploadedAt: string; size?: string }[];
+  additionalDocs?: { name: string; uploadedAt: string; size?: string; url?: string; downloadUrl?: string; fileType?: string }[];
   propertyType?: string;
   propertyLocation?: string;
   checkInImages?: string[]; // check-in inspection images (data URLs or remote URLs)
@@ -82,6 +85,8 @@ export interface AddOnRequest {
   paymentChannel?: 'Online' | 'Desk';
 }
 
+export type HousekeepingStatus = 'Pending' | 'Approved' | 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled';
+
 export interface HousekeepingRequest {
   id: string;
   tenantId: string;
@@ -92,7 +97,7 @@ export interface HousekeepingRequest {
   requestedAt: string;
   frequency: 'Monthly' | 'Bi-Weekly' | 'Single Use';
   priceValue: number; // €140/mo, €120/mo, or €40/use
-  status: 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled';
+  status: HousekeepingStatus;
   notes?: string;
 }
 

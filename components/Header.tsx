@@ -1,3 +1,5 @@
+"use client";
+import { useState, useEffect } from 'react';
 import { Search, Calendar, ShieldCheck, HelpCircle, Menu } from 'lucide-react';
 
 interface HeaderProps {
@@ -9,8 +11,25 @@ interface HeaderProps {
 }
 
 export default function Header({ title, searchTerm, setSearchTerm, onOpenFaq, onOpenMobileSidebar }: HeaderProps) {
-  // Current metadata date: 2026-07-09
-  const formattedDate = "Thursday, July 9, 2026";
+  const [formattedDate, setFormattedDate] = useState<string>('');
+
+  useEffect(() => {
+    const updateDate = () => {
+      const now = new Date();
+      setFormattedDate(
+        now.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        })
+      );
+    };
+
+    updateDate();
+    const interval = setInterval(updateDate, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <header className="h-20 bg-white border-b border-brand-border px-4 md:px-8 flex items-center justify-between shrink-0">
@@ -52,7 +71,9 @@ export default function Header({ title, searchTerm, setSearchTerm, onOpenFaq, on
         {/* Date Display */}
         <div className="hidden md:flex items-center space-x-2 text-brand-secondary">
           <Calendar className="h-4 w-4 text-brand-stone" />
-          <span className="text-xs font-semibold font-mono">{formattedDate}</span>
+          <span className="text-xs font-semibold font-mono" suppressHydrationWarning>
+            {formattedDate}
+          </span>
         </div>
 
         {/* FAQ Quick Link */}
