@@ -110,6 +110,26 @@ export default function TenantsView({
     }
   };
 
+  const handleDeleteSelectedClient = async () => {
+    if (!selectedTenant) return;
+    const confirmed = await confirmDialog(
+      'Delete Client',
+      `Are you sure you want to permanently delete resident "${selectedTenant.name}"? All associated lease records, invoices, tickets, and inspection data will be removed.`
+    );
+    if (!confirmed) return;
+
+    try {
+      if (onDeleteTenant) {
+        await onDeleteTenant(selectedTenant.id);
+      }
+      onAddActivity('tenant', 'Deleted Client', `Admin permanently removed resident ${selectedTenant.name} from the leaseholder registry.`);
+      setSelectedTenantId(null);
+      showToast(`Resident ${selectedTenant.name} has been permanently deleted.`, 'info');
+    } catch (e: any) {
+      showToast(`Failed to delete resident: ${e.message || 'Server error'}`, 'error');
+    }
+  };
+
   const handleSortClick = (column: SortColumn, isShiftKey: boolean) => {
     setSortRules(prevRules => {
       const index = prevRules.findIndex(r => r.column === column);
@@ -329,6 +349,9 @@ export default function TenantsView({
   // --- Drag and Drop File Upload States ---
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingCheckIn, setIsUploadingCheckIn] = useState(false);
+  const [isUploadingCheckOut, setIsUploadingCheckOut] = useState(false);
+  const [selectedInspectionPhoto, setSelectedInspectionPhoto] = useState<string | null>(null);
   const [uploadDocType, setUploadDocType] = useState<'contract' | 'id' | 'other'>('contract');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailViewRef = useRef<HTMLDivElement>(null);
@@ -459,6 +482,82 @@ export default function TenantsView({
       'Deleted Compliance Document',
       `Admin deleted additional document "${name}" from ${selectedTenant.name}'s profile.`
     );
+  };
+
+  const handleUploadInspectionPhoto = async (files: FileList | File[], type: 'checkIn' | 'checkOut') => {
+    if (!selectedTenant) {
+      showToast('Please select a resident record first.', 'warning');
+      return;
+    }
+
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    if (type === 'checkIn') {
+      setIsUploadingCheckIn(true);
+    } else {
+      setIsUploadingCheckOut(true);
+    }
+
+    try {
+      const uploadedUrls: string[] = [];
+
+      for (const file of fileArray) {
+        if (!file.type.startsWith('image/')) {
+          showToast(`"${file.name}" is not an image. Only photos are supported for inspections.`, 'warning');
+          continue;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('category', type === 'checkIn' ? 'check-in' : 'check-out');
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+          throw new Error(err.error || `Upload failed with status ${res.status}`);
+        }
+
+        const result = await res.json();
+        const photoUrl = result.url || result.cloudinaryUrl;
+        if (photoUrl) {
+          uploadedUrls.push(photoUrl);
+        }
+      }
+
+      if (uploadedUrls.length > 0) {
+        if (type === 'checkIn') {
+          const updated: Tenant = {
+            ...selectedTenant,
+            checkInImages: [...(selectedTenant.checkInImages || []), ...uploadedUrls],
+          };
+          onUpdateTenant(updated);
+          showToast(`Uploaded ${uploadedUrls.length} check-in photo(s) to Cloudinary.`, 'success');
+          onAddActivity('tenant', 'Uploaded Handover Photo', `Admin uploaded ${uploadedUrls.length} check-in photo(s) for ${selectedTenant.name}.`);
+        } else {
+          const updated: Tenant = {
+            ...selectedTenant,
+            checkOutImages: [...(selectedTenant.checkOutImages || []), ...uploadedUrls],
+          };
+          onUpdateTenant(updated);
+          showToast(`Uploaded ${uploadedUrls.length} check-out photo(s) to Cloudinary.`, 'success');
+          onAddActivity('tenant', 'Uploaded Handover Photo', `Admin uploaded ${uploadedUrls.length} check-out photo(s) for ${selectedTenant.name}.`);
+        }
+      }
+    } catch (err: any) {
+      console.error('Inspection photo upload error:', err);
+      showToast(`Upload failed: ${err.message || 'Server error'}`, 'error');
+    } finally {
+      if (type === 'checkIn') {
+        setIsUploadingCheckIn(false);
+      } else {
+        setIsUploadingCheckOut(false);
+      }
+    }
   };
 
   const handleSelectTenant = (tenantId: string) => {
@@ -1257,7 +1356,7 @@ export default function TenantsView({
               {onDeleteTenant && (
                 <button
                   type="button"
-                  onClick={() => onDeleteTenant(selectedTenant.id)}
+                  onClick={handleDeleteSelectedClient}
                   className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all cursor-pointer group"
                 >
                   <Trash2 className="h-4 w-4 text-rose-600 group-hover:scale-110 transition-transform" />
@@ -1973,50 +2072,63 @@ export default function TenantsView({
               <div className="grid grid-cols-2 gap-4 text-xs pt-1">
                 {/* Check-In Photo Manager */}
                 <div className="space-y-2">
-                  <span className="block font-bold text-[10px] uppercase tracking-wider text-brand-stone">Check-In Photos</span>
+                  <div className="flex items-center justify-between">
+                    <span className="block font-bold text-[10px] uppercase tracking-wider text-brand-stone">Check-In Photos</span>
+                    <span className="text-[9px] font-mono font-semibold text-brand-secondary">
+                      {(selectedTenant.checkInImages || []).length} photo{((selectedTenant.checkInImages || []).length === 1 ? '' : 's')}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {(selectedTenant.checkInImages || []).map((img, idx) => (
-                      <div key={`ci-${idx}`} className="relative group h-12 rounded-lg border border-brand-border overflow-hidden bg-white shadow-2xs">
-                        <img src={img} alt={`CI-${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = {
-                              ...selectedTenant,
-                              checkInImages: (selectedTenant.checkInImages || []).filter((_, i) => i !== idx)
-                            };
-                            onUpdateTenant(updated);
-                            onAddActivity('tenant', 'Deleted Handover Photo', `Admin removed check-in image for ${selectedTenant.name}`);
-                          }}
-                          className="absolute inset-0 bg-rose-600/80 hover:bg-rose-700/90 text-white rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                          title="Delete check-in photo"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      <div 
+                        key={`ci-${idx}`} 
+                        className="relative group h-14 rounded-lg border border-brand-border overflow-hidden bg-white shadow-2xs cursor-pointer"
+                        onClick={() => setSelectedInspectionPhoto(img)}
+                      >
+                        <img src={img} alt={`CI-${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between p-1">
+                          <span className="p-1 text-white bg-slate-900/60 rounded" title="View full size">
+                            <Eye className="h-3 w-3" />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = {
+                                ...selectedTenant,
+                                checkInImages: (selectedTenant.checkInImages || []).filter((_, i) => i !== idx)
+                              };
+                              onUpdateTenant(updated);
+                              onAddActivity('tenant', 'Deleted Handover Photo', `Admin removed check-in image for ${selectedTenant.name}`);
+                              showToast('Removed check-in photo.', 'info');
+                            }}
+                            className="p-1 text-white bg-rose-600/90 hover:bg-rose-700 rounded transition-colors cursor-pointer"
+                            title="Delete check-in photo"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     
-                    <label className="border border-dashed border-brand-stone/60 hover:border-brand-primary bg-white hover:bg-brand-surface/40 h-12 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors shadow-2xs">
-                      <Plus className="h-4 w-4 text-brand-primary" />
-                      <span className="text-[8px] font-bold text-brand-stone uppercase tracking-wide">Add</span>
+                    <label className={`border border-dashed border-brand-stone/60 hover:border-brand-primary bg-white hover:bg-brand-surface/40 h-14 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors shadow-2xs ${isUploadingCheckIn ? 'opacity-60 pointer-events-none' : ''}`}>
+                      {isUploadingCheckIn ? (
+                        <Loader2 className="h-4 w-4 text-brand-primary animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4 text-brand-primary" />
+                      )}
+                      <span className="text-[8px] font-bold text-brand-stone uppercase tracking-wide mt-0.5">
+                        {isUploadingCheckIn ? 'Saving...' : 'Add'}
+                      </span>
                       <input
                         type="file"
                         accept="image/*"
+                        multiple
+                        disabled={isUploadingCheckIn}
                         onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              if (typeof reader.result === 'string') {
-                                const updated = {
-                                  ...selectedTenant,
-                                  checkInImages: [...(selectedTenant.checkInImages || []), reader.result]
-                                };
-                                onUpdateTenant(updated);
-                                onAddActivity('tenant', 'Uploaded Handover Photo', `Admin uploaded new check-in image for ${selectedTenant.name}`);
-                              }
-                            };
-                            reader.readAsDataURL(file);
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadInspectionPhoto(e.target.files, 'checkIn');
+                            e.target.value = '';
                           }
                         }}
                         className="hidden"
@@ -2027,50 +2139,63 @@ export default function TenantsView({
 
                 {/* Check-Out Photo Manager */}
                 <div className="space-y-2">
-                  <span className="block font-bold text-[10px] uppercase tracking-wider text-brand-stone">Check-Out Photos</span>
+                  <div className="flex items-center justify-between">
+                    <span className="block font-bold text-[10px] uppercase tracking-wider text-brand-stone">Check-Out Photos</span>
+                    <span className="text-[9px] font-mono font-semibold text-brand-secondary">
+                      {(selectedTenant.checkOutImages || []).length} photo{((selectedTenant.checkOutImages || []).length === 1 ? '' : 's')}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {(selectedTenant.checkOutImages || []).map((img, idx) => (
-                      <div key={`co-${idx}`} className="relative group h-12 rounded-lg border border-brand-border overflow-hidden bg-white shadow-2xs">
-                        <img src={img} alt={`CO-${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = {
-                              ...selectedTenant,
-                              checkOutImages: (selectedTenant.checkOutImages || []).filter((_, i) => i !== idx)
-                            };
-                            onUpdateTenant(updated);
-                            onAddActivity('tenant', 'Deleted Handover Photo', `Admin removed check-out image for ${selectedTenant.name}`);
-                          }}
-                          className="absolute inset-0 bg-rose-600/80 hover:bg-rose-700/90 text-white rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                          title="Delete check-out photo"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      <div 
+                        key={`co-${idx}`} 
+                        className="relative group h-14 rounded-lg border border-brand-border overflow-hidden bg-white shadow-2xs cursor-pointer"
+                        onClick={() => setSelectedInspectionPhoto(img)}
+                      >
+                        <img src={img} alt={`CO-${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between p-1">
+                          <span className="p-1 text-white bg-slate-900/60 rounded" title="View full size">
+                            <Eye className="h-3 w-3" />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = {
+                                ...selectedTenant,
+                                checkOutImages: (selectedTenant.checkOutImages || []).filter((_, i) => i !== idx)
+                              };
+                              onUpdateTenant(updated);
+                              onAddActivity('tenant', 'Deleted Handover Photo', `Admin removed check-out image for ${selectedTenant.name}`);
+                              showToast('Removed check-out photo.', 'info');
+                            }}
+                            className="p-1 text-white bg-rose-600/90 hover:bg-rose-700 rounded transition-colors cursor-pointer"
+                            title="Delete check-out photo"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     
-                    <label className="border border-dashed border-brand-stone/60 hover:border-brand-primary bg-white hover:bg-brand-surface/40 h-12 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors shadow-2xs">
-                      <Plus className="h-4 w-4 text-brand-primary" />
-                      <span className="text-[8px] font-bold text-brand-stone uppercase tracking-wide">Add</span>
+                    <label className={`border border-dashed border-brand-stone/60 hover:border-brand-primary bg-white hover:bg-brand-surface/40 h-14 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors shadow-2xs ${isUploadingCheckOut ? 'opacity-60 pointer-events-none' : ''}`}>
+                      {isUploadingCheckOut ? (
+                        <Loader2 className="h-4 w-4 text-brand-primary animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4 text-brand-primary" />
+                      )}
+                      <span className="text-[8px] font-bold text-brand-stone uppercase tracking-wide mt-0.5">
+                        {isUploadingCheckOut ? 'Saving...' : 'Add'}
+                      </span>
                       <input
                         type="file"
                         accept="image/*"
+                        multiple
+                        disabled={isUploadingCheckOut}
                         onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              if (typeof reader.result === 'string') {
-                                const updated = {
-                                  ...selectedTenant,
-                                  checkOutImages: [...(selectedTenant.checkOutImages || []), reader.result]
-                                };
-                                onUpdateTenant(updated);
-                                onAddActivity('tenant', 'Uploaded Handover Photo', `Admin uploaded new check-out image for ${selectedTenant.name}`);
-                              }
-                            };
-                            reader.readAsDataURL(file);
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadInspectionPhoto(e.target.files, 'checkOut');
+                            e.target.value = '';
                           }
                         }}
                         className="hidden"
@@ -2906,6 +3031,34 @@ export default function TenantsView({
         </div>
       );
     })()}
+
+      {/* Handover Inspection Photo Lightbox Modal */}
+      {selectedInspectionPhoto && (
+        <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-[100] backdrop-blur-md animate-fade-in">
+          <div className="relative max-w-4xl w-full flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setSelectedInspectionPhoto(null)}
+              className="absolute top-[-40px] right-0 text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+              title="Close Lightbox"
+            >
+              <X className="h-5 w-5" />
+              <span>Close</span>
+            </button>
+            <div className="bg-white rounded-2xl border border-white/10 overflow-hidden p-2 shadow-2xl max-h-[80vh] flex items-center justify-center">
+              <img 
+                src={selectedInspectionPhoto} 
+                alt="Property Handover Inspection Photograph" 
+                className="max-h-[75vh] max-w-full object-contain rounded-xl"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <div className="mt-3 text-center text-white/90 text-xs font-semibold tracking-wide font-sans">
+              Property Handover Inspection Photograph • Seven Rocks Residence
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   </div>
 );

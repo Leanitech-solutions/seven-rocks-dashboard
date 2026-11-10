@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
 import { db } from '../../../../server/db';
 import { eq } from 'drizzle-orm';
-import { tenants } from '../../../../server/schema';
+import { 
+  tenants, 
+  invoices, 
+  maintenanceTickets, 
+  housekeepingRequests, 
+  addOnRequests, 
+  contractExtensionRequests, 
+  inspections 
+} from '../../../../server/schema';
 
 import { parseSessionCookie, SESSION_COOKIE_NAME } from '../../../../lib/auth';
 import { cookies } from 'next/headers';
@@ -94,10 +102,21 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     if (!(await checkAdmin(req))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { id } = await params;
     if (isUUID(id)) {
+      // Explicit cascading deletion for child records
+      await db.delete(invoices).where(eq(invoices.tenantId, id)).catch(() => {});
+      await db.delete(maintenanceTickets).where(eq(maintenanceTickets.tenantId, id)).catch(() => {});
+      await db.delete(housekeepingRequests).where(eq(housekeepingRequests.tenantId, id)).catch(() => {});
+      await db.delete(addOnRequests).where(eq(addOnRequests.tenantId, id)).catch(() => {});
+      await db.delete(contractExtensionRequests).where(eq(contractExtensionRequests.tenantId, id)).catch(() => {});
+      await db.delete(inspections).where(eq(inspections.tenantId, id)).catch(() => {});
+
       await db.delete(tenants).where(eq(tenants.id, id));
+    } else {
+      await db.delete(tenants).where(eq(tenants.email, id.toLowerCase()));
     }
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    console.error('Delete tenant error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

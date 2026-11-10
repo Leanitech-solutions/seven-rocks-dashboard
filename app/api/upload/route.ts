@@ -16,11 +16,12 @@ cloudinary.config({
 async function uploadToCloudinary(
   buffer: Buffer,
   originalName: string,
-  mimeType: string
+  mimeType: string,
+  folder: string = 'seven-rocks/tenant-docs'
 ): Promise<{ secureUrl: string; publicId: string }> {
   const ext = path.extname(originalName) || (mimeType.includes('pdf') ? '.pdf' : '.png');
   const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-  const publicId = `seven-rocks/tenant-docs/${Date.now()}-${base}${ext}`;
+  const publicId = `${folder}/${Date.now()}-${base}${ext}`;
 
   return new Promise((resolve, reject) => {
     const resourceType = mimeType.startsWith('image/') ? 'image' : 'raw';
@@ -79,16 +80,24 @@ export async function POST(req: Request) {
     if (contentType.includes('multipart/form-data')) {
       const formData = await req.formData();
       const file = formData.get('file') as File | null;
+      const category = formData.get('category') as string | null;
 
       if (!file) {
         return NextResponse.json({ error: 'No file provided in form data' }, { status: 400 });
+      }
+
+      let folder = 'seven-rocks/tenant-docs';
+      if (category === 'check-in' || category === 'checkIn') {
+        folder = 'seven-rocks/tenant-docs/check-in';
+      } else if (category === 'check-out' || category === 'checkOut') {
+        folder = 'seven-rocks/tenant-docs/check-out';
       }
 
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
       const mimeType = file.type || 'application/octet-stream';
 
-      const { secureUrl, publicId } = await uploadToCloudinary(buffer, file.name, mimeType);
+      const { secureUrl, publicId } = await uploadToCloudinary(buffer, file.name, mimeType, folder);
       const responseData = buildResponse(file.name, mimeType, file.size, publicId, secureUrl);
 
       return NextResponse.json(responseData);
@@ -97,10 +106,17 @@ export async function POST(req: Request) {
     // 2. JSON base64 upload
     if (contentType.includes('application/json')) {
       const body = await req.json();
-      const { dataUrl, filename, mimeType: rawMime } = body;
+      const { dataUrl, filename, mimeType: rawMime, category } = body;
 
       if (!dataUrl) {
         return NextResponse.json({ error: 'dataUrl is required for JSON upload' }, { status: 400 });
+      }
+
+      let folder = 'seven-rocks/tenant-docs';
+      if (category === 'check-in' || category === 'checkIn') {
+        folder = 'seven-rocks/tenant-docs/check-in';
+      } else if (category === 'check-out' || category === 'checkOut') {
+        folder = 'seven-rocks/tenant-docs/check-out';
       }
 
       const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
@@ -109,7 +125,7 @@ export async function POST(req: Request) {
       const buffer = Buffer.from(base64Data, 'base64');
 
       const originalName = filename || 'document.pdf';
-      const { secureUrl, publicId } = await uploadToCloudinary(buffer, originalName, mimeType);
+      const { secureUrl, publicId } = await uploadToCloudinary(buffer, originalName, mimeType, folder);
       const responseData = buildResponse(originalName, mimeType, buffer.length, publicId, secureUrl);
 
       return NextResponse.json(responseData);

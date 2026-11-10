@@ -40,6 +40,9 @@ function mapTenant(t: any): Tenant {
       adminFee: { status: 'Pending' },
       finalDeparture: { status: t.status === 'checked_out' ? 'Approved' : 'Pending' },
     },
+    checkInImages: Array.isArray(t.checkInImages) ? t.checkInImages : Array.isArray(t.check_in_images) ? t.check_in_images : [],
+    checkOutImages: Array.isArray(t.checkOutImages) ? t.checkOutImages : Array.isArray(t.check_out_images) ? t.check_out_images : [],
+    inventoryItems: Array.isArray(t.inventoryItems) ? t.inventoryItems : Array.isArray(t.inventory_items) ? t.inventory_items : [],
   };
 }
 
@@ -296,6 +299,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         oneTimeAdminFee: updated.oneTimeAdminFee,
         activeAddOns: updated.activeAddOns,
         verificationChecklist: updated.verificationChecklist,
+        checkInImages: updated.checkInImages || [],
+        checkOutImages: updated.checkOutImages || [],
+        inventoryItems: updated.inventoryItems || [],
         status:
           updated.status === 'Checked-In' ? 'active'
           : updated.status === 'Checked-Out' ? 'checked_out'
@@ -327,8 +333,13 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`/api/tenants/${tenantId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
       setTenants(prev => prev.filter(t => t.id !== tenantId));
+      setInvoices(prev => prev.filter(inv => inv.tenantId !== tenantId));
+      setTickets(prev => prev.filter(tck => tck.tenantId !== tenantId));
+      setHousekeepings(prev => prev.filter(hk => hk.tenantId !== tenantId));
+      setAddOnRequests(prev => prev.filter(req => req.tenantId !== tenantId));
     } catch (err) {
       console.error('Failed to delete tenant:', err);
+      throw err;
     }
   }, []);
 

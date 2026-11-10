@@ -40,6 +40,9 @@ export const tenants = pgTable("tenants", {
   verificationChecklist: json("verification_checklist").$type<any>(),
   activeAddOns: json("active_add_ons").$type<string[]>().default([]),
   additionalDocs: json("additional_docs").$type<{ name: string; uploadedAt: string; size?: string }[]>().default([]),
+  checkInImages: json("check_in_images").$type<string[]>().default([]),
+  checkOutImages: json("check_out_images").$type<string[]>().default([]),
+  inventoryItems: json("inventory_items").$type<any[]>().default([]),
   passwordHash: text("password_hash"),
   onboardingToken: text("onboarding_token"),
   onboardingTokenExpiresAt: timestamp("onboarding_token_expires_at"),
@@ -50,7 +53,7 @@ export const tenants = pgTable("tenants", {
 
 export const maintenanceTickets = pgTable("maintenance_tickets", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").references(() => tenants.id),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   subject: text("subject").notNull(),
   description: text("description").notNull(),
   priority: text("priority").default("Medium"), // Low, Medium, High
@@ -62,7 +65,7 @@ export const maintenanceTickets = pgTable("maintenance_tickets", {
 
 export const housekeepingRequests = pgTable("housekeeping_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").references(() => tenants.id),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   date: date("date").notNull(),
   timeSlot: text("time_slot"), // made nullable since UI doesn't have it currently
   status: text("status").default("Pending"), // Pending, Approved, Completed, Cancelled
@@ -90,7 +93,7 @@ export const addOnServices = pgTable("add_on_services", {
 
 export const addOnRequests = pgTable("add_on_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").references(() => tenants.id),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   serviceId: uuid("service_id").references(() => addOnServices.id),
   status: text("status").default("Pending"), // Pending, Approved, Rejected, Completed
   paymentStatus: text("payment_status").default("Unpaid"), // Unpaid, Paid
@@ -100,7 +103,7 @@ export const addOnRequests = pgTable("add_on_requests", {
 
 export const invoices = pgTable("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").references(() => tenants.id),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   amount: numeric("amount").notNull(),
   status: text("status").default("Pending"), // Pending, Paid, Overdue
   dueDate: date("due_date").notNull(),
@@ -126,7 +129,7 @@ export const invoices = pgTable("invoices", {
 
 export const inspections = pgTable("inspections", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").references(() => tenants.id),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   type: text("type").notNull(), // Check-In, Check-Out, Routine
   notes: text("notes"),
   status: text("status").default("Pending"), // Pending, Completed
@@ -187,7 +190,7 @@ export const appSettings = pgTable("app_settings", {
 
 export const contractExtensionRequests = pgTable("contract_extension_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").references(() => tenants.id),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   currentEndDate: date("current_end_date").notNull(),
   requestedDurationMonths: integer("requested_duration_months").notNull(),
   newEndDate: date("new_end_date").notNull(),
