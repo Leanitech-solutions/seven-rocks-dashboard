@@ -10,6 +10,8 @@ export const users = pgTable("users", {
   status: text("status").default("active"), // 'active' | 'pending'
   onboardingToken: text("onboarding_token"),
   onboardingTokenExpiresAt: timestamp("onboarding_token_expires_at"),
+  resetPasswordToken: text("reset_password_token"),
+  resetPasswordTokenExpiresAt: timestamp("reset_password_token_expires_at"),
   department: json("department").$type<string[]>().default([]), // e.g. ['housekeeping','maintenance','addons','tenants','notifications']
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -47,6 +49,8 @@ export const tenants = pgTable("tenants", {
   onboardingToken: text("onboarding_token"),
   onboardingTokenExpiresAt: timestamp("onboarding_token_expires_at"),
   onboardingCompleted: boolean("onboarding_completed").default(false),
+  resetPasswordToken: text("reset_password_token"),
+  resetPasswordTokenExpiresAt: timestamp("reset_password_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

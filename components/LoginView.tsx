@@ -13,7 +13,9 @@ import {
   Mail,
   Calendar,
   Layers,
-  X
+  X,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { SevenRocksLogo } from './SevenRocksLogo';
 import { Tenant } from '../types';
@@ -26,6 +28,21 @@ interface LoginViewProps {
   onUpdateTenant?: (updated: Tenant) => void;
 }
 
+const formatDateYMD = (d: Date): string => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const getDefaultCheckInDate = (): string => formatDateYMD(new Date());
+
+const getDefaultCheckOutDate = (): string => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 3);
+  return formatDateYMD(d);
+};
+
 export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }: LoginViewProps) {
   const { showToast, ToastElement } = useToast();
   const [activeTab, setActiveTab] = useState<'resident' | 'staff'>('resident');
@@ -35,13 +52,12 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
   const [residentPassword, setResidentPassword] = useState('');
   const [residentError, setResidentError] = useState('');
 
-  // Password recovery flow states for guest / resident
+  // Password recovery flow states (production-ready)
   const [isForgotMode, setIsForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotTenant, setForgotTenant] = useState<Tenant | null>(null);
-  const [newResetPassword, setNewResetPassword] = useState('');
-  const [forgotStatus, setForgotStatus] = useState('');
-  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotStatus, setForgotStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+  const [isForgotSubmitting, setIsForgotSubmitting] = useState(false);
+  const [forgotEmailSent, setForgotEmailSent] = useState(false);
 
   // Staff credentials login states (editable)
   const [staffEmail, setStaffEmail] = useState('');
@@ -55,9 +71,9 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
   const [signUpPassword, setSignUpPassword] = useState('');
   const [signUpPhone, setSignUpPhone] = useState('');
   const [signUpPropertyType, setSignUpPropertyType] = useState('Co-Living');
-  const [signUpPropertyLocation, setSignUpPropertyLocation] = useState('Berlin Mitte Central');
-  const [signUpCheckIn, setSignUpCheckIn] = useState('2026-07-09');
-  const [signUpCheckOut, setSignUpCheckOut] = useState('2027-01-09');
+  const [signUpPropertyLocation, setSignUpPropertyLocation] = useState('Seven Rocks');
+  const [signUpCheckIn, setSignUpCheckIn] = useState(getDefaultCheckInDate);
+  const [signUpCheckOut, setSignUpCheckOut] = useState(getDefaultCheckOutDate);
   const [idFile, setIdFile] = useState<File | null>(null);
   const [idFileName, setIdFileName] = useState('');
   const [signUpSuccess, setSignUpSuccess] = useState(false);
@@ -117,53 +133,45 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
     }
   };
 
-  const handleForgotSubmit = (e: FormEvent) => {
+  const handleForgotSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setForgotStatus('');
+    setForgotStatus(null);
 
-    if (!forgotEmail.trim()) {
-      setForgotStatus('Error: Please enter your email address.');
+    const cleanEmail = forgotEmail.trim().toLowerCase();
+    if (!cleanEmail) {
+      setForgotStatus({ type: 'error', message: 'Please enter your registered email address.' });
       return;
     }
 
-    const t = tenants.find(x => x.email.toLowerCase() === forgotEmail.trim().toLowerCase());
-    if (!t) {
-      setForgotStatus('Error: No active resident found with this email. Please check spelling or register.');
-    } else {
-      setForgotTenant(t);
-      setForgotSuccess(true);
-      setForgotStatus('');
-    }
-  };
+    setIsForgotSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
 
-  const handleResetPasswordSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    setForgotStatus('');
-
-    if (newResetPassword.trim().length < 4) {
-      setForgotStatus('Password must be at least 4 characters long.');
-      return;
-    }
-
-    if (forgotTenant && onUpdateTenant) {
-      const updated = { ...forgotTenant, password: newResetPassword.trim() };
-      onUpdateTenant(updated);
-      
-      // Auto-populate inputs for immediate entry
-      setResidentEmail(forgotTenant.email);
-      setResidentPassword(newResetPassword.trim());
-      
-      // Log them in
-      onLogin('tenant', forgotTenant.id);
-
-      // Reset states
-      setIsForgotMode(false);
-      setForgotSuccess(false);
-      setForgotEmail('');
-      setForgotStatus('');
-      setForgotTenant(null);
-      setNewResetPassword('');
-      showToast(`Password updated for ${forgotTenant.name}. Logging into resident portal.`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setForgotStatus({
+          type: 'error',
+          message: data.error || 'Failed to send password reset email. Please try again.',
+        });
+      } else {
+        setForgotEmailSent(true);
+        setForgotStatus({
+          type: 'success',
+          message: data.message || 'If an account exists with this email, a reset link has been dispatched.',
+        });
+        showToast('Password reset link sent! Please check your inbox.');
+      }
+    } catch (err: any) {
+      setForgotStatus({
+        type: 'error',
+        message: 'Network error. Please check your internet connection.',
+      });
+    } finally {
+      setIsForgotSubmitting(false);
     }
   };
 
@@ -223,7 +231,7 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
           phone: signUpPhone.trim(),
           roomNumber: '',
           propertyType: signUpPropertyType.trim(),
-          propertyLocation: signUpPropertyLocation.trim() || 'Berlin Mitte Central',
+          propertyLocation: signUpPropertyLocation.trim() || 'Seven Rocks',
           leaseStart: signUpCheckIn,
           leaseEnd: signUpCheckOut,
           contractLengthMonths: leaseMonths,
@@ -258,9 +266,9 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
     setSignUpPassword('');
     setSignUpPhone('');
     setSignUpPropertyType('Co-Living');
-    setSignUpPropertyLocation('Berlin Mitte Central');
-    setSignUpCheckIn('2026-07-09');
-    setSignUpCheckOut('2027-01-09');
+    setSignUpPropertyLocation('Seven Rocks');
+    setSignUpCheckIn(getDefaultCheckInDate());
+    setSignUpCheckOut(getDefaultCheckOutDate());
     setIdFile(null);
     setIdFileName('');
     setSignUpSuccess(false);
@@ -446,7 +454,7 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
                     <label className="block text-[10px] font-bold text-brand-stone uppercase tracking-wider">Property Location (Optional)</label>
                     <input
                       type="text"
-                      placeholder="e.g. Berlin Mitte Central"
+                      placeholder="e.g. Seven Rocks"
                       value={signUpPropertyLocation}
                       onChange={(e) => setSignUpPropertyLocation(e.target.value)}
                       className="w-full bg-brand-surface border border-brand-border rounded-xl py-2.5 px-3.5 text-xs font-semibold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
@@ -462,7 +470,17 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
                       type="date"
                       required
                       value={signUpCheckIn}
-                      onChange={(e) => setSignUpCheckIn(e.target.value)}
+                      onChange={(e) => {
+                        const newIn = e.target.value;
+                        setSignUpCheckIn(newIn);
+                        if (newIn) {
+                          const d = new Date(newIn);
+                          if (!isNaN(d.getTime())) {
+                            d.setMonth(d.getMonth() + 3);
+                            setSignUpCheckOut(formatDateYMD(d));
+                          }
+                        }
+                      }}
                       className="w-full bg-brand-surface border border-brand-border rounded-xl py-2.5 px-3.5 text-xs font-semibold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary font-mono"
                     />
                   </div>
@@ -524,36 +542,38 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
               </div>
             </form>
           ) : isForgotMode ? (
-            /* Forgot Password Form */
-            <form onSubmit={handleForgotSubmit} className="space-y-4 animate-fade-in">
+            /* Production-Ready Forgot Password Form */
+            <div className="space-y-4 animate-fade-in">
               <div className="text-center space-y-2">
                 <h2 className="text-2xl font-extrabold text-brand-dark font-serif">Password Recovery</h2>
                 <p className="text-xs text-brand-secondary">
-                  Enter your registered resident email to search your credentials or override your password directly.
+                  Enter your registered account email address to receive a secure password reset link.
                 </p>
               </div>
 
-              {!forgotSuccess ? (
-                <div className="space-y-4">
+              {!forgotEmailSent ? (
+                <form onSubmit={handleForgotSubmit} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-brand-secondary">Resident Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="e.g. sarah.j@example.com"
-                      value={forgotEmail}
-                      onChange={(e) => setForgotEmail(e.target.value)}
-                      className="w-full bg-brand-surface border border-brand-border rounded-xl py-3 px-4 text-xs font-semibold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
-                    />
+                    <label className="block text-xs font-bold text-brand-secondary">Registered Email Address</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-stone">
+                        <Mail className="h-4 w-4" />
+                      </div>
+                      <input
+                        type="email"
+                        required
+                        placeholder="e.g. sarah.j@example.com"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        className="w-full bg-brand-surface border border-brand-border rounded-xl py-3 pl-10 pr-4 text-xs font-semibold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
+                      />
+                    </div>
                   </div>
 
-                  {forgotStatus && (
-                    <div className={`p-3 rounded-xl border text-xs font-semibold ${
-                      forgotStatus.includes('Error') 
-                        ? 'bg-rose-50 border-rose-200 text-rose-700' 
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    }`}>
-                      {forgotStatus}
+                  {forgotStatus && forgotStatus.type === 'error' && (
+                    <div className="p-3 rounded-xl border text-xs font-semibold bg-rose-50 border-rose-200 text-rose-700 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
+                      <span>{forgotStatus.message}</span>
                     </div>
                   )}
 
@@ -563,8 +583,8 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
                       onClick={() => {
                         setIsForgotMode(false);
                         setForgotEmail('');
-                        setForgotStatus('');
-                        setForgotTenant(null);
+                        setForgotStatus(null);
+                        setForgotEmailSent(false);
                       }}
                       className="flex-1 py-3 bg-white hover:bg-brand-bg text-brand-secondary border border-brand-border text-xs font-bold rounded-xl transition-all cursor-pointer text-center"
                     >
@@ -572,69 +592,72 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-3 bg-natural-orange hover:bg-[#E06C1B] text-white text-xs font-bold rounded-xl transition-all shadow-brand cursor-pointer text-center"
+                      disabled={isForgotSubmitting}
+                      className="flex-1 py-3 bg-brand-primary hover:bg-[#253D32] disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-brand cursor-pointer text-center flex items-center justify-center gap-2"
                     >
-                      Find Credentials
+                      {isForgotSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Sending Link...</span>
+                        </>
+                      ) : (
+                        <span>Send Reset Link</span>
+                      )}
                     </button>
                   </div>
-                </div>
+                </form>
               ) : (
-                <div className="space-y-4">
-                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs space-y-2 leading-relaxed">
-                    <p className="font-extrabold flex items-center space-x-1.5">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>Account Found: {forgotTenant?.name}</span>
-                    </p>
-                    <p className="text-[11px] leading-relaxed text-emerald-700">
-                      In this guest preview environment, we have fetched your credentials. You can see your current password or choose a new one below:
-                    </p>
-                    <div className="p-2 bg-white/80 rounded-xl border border-emerald-300 font-mono text-[11px] text-brand-primary">
-                      Current Password: <strong className="font-bold">{forgotTenant?.password || 'password123'}</strong>
-                    </div>
+                <div className="space-y-5 animate-fade-in text-center">
+                  <div className="w-14 h-14 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
+                    <CheckCircle2 className="h-8 w-8" />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-brand-secondary">Override with New Password</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Enter new password (min. 4 chars)"
-                      value={newResetPassword}
-                      onChange={(e) => setNewResetPassword(e.target.value)}
-                      className="w-full bg-brand-surface border border-brand-border rounded-xl py-3 px-4 text-xs font-semibold text-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-primary"
-                    />
+                    <h3 className="text-base font-bold text-brand-dark font-serif">Check Your Inbox</h3>
+                    <p className="text-xs text-brand-secondary leading-relaxed max-w-sm mx-auto">
+                      We've dispatched a password reset link to your email address. Please click the link in that email to set your new password.
+                    </p>
                   </div>
 
-                  {forgotStatus && (
-                    <p className="text-[11px] text-rose-700 font-semibold">{forgotStatus}</p>
-                  )}
+                  <div className="p-3 bg-brand-surface border border-brand-border rounded-xl text-xs font-mono font-bold text-brand-dark truncate max-w-xs mx-auto">
+                    {forgotEmail}
+                  </div>
 
-                  <div className="flex gap-2 pt-2">
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-[11px] text-amber-800 text-left space-y-1">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      <span>Didn't receive the email?</span>
+                    </p>
+                    <p className="text-amber-700">
+                      Check your spam or junk folder, or click below to request another reset link.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 pt-1">
                     <button
                       type="button"
-                      onClick={handleResetPasswordSubmit}
-                      className="w-full py-3 bg-brand-primary hover:bg-[#253D32] text-white text-xs font-bold rounded-xl transition-all shadow-brand cursor-pointer text-center"
+                      disabled={isForgotSubmitting}
+                      onClick={handleForgotSubmit}
+                      className="w-full py-2.5 bg-brand-surface hover:bg-brand-bg text-brand-dark border border-brand-border text-xs font-bold rounded-xl transition-all cursor-pointer text-center"
                     >
-                      Save Password & Auto Log In
+                      {isForgotSubmitting ? 'Resending...' : 'Resend Email'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsForgotMode(false);
+                        setForgotEmail('');
+                        setForgotStatus(null);
+                        setForgotEmailSent(false);
+                      }}
+                      className="w-full py-2.5 bg-white hover:bg-brand-bg text-brand-secondary text-xs font-semibold rounded-xl transition-all cursor-pointer text-center"
+                    >
+                      Return to Log In
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsForgotMode(false);
-                      setForgotSuccess(false);
-                      setForgotEmail('');
-                      setForgotStatus('');
-                      setForgotTenant(null);
-                      setNewResetPassword('');
-                    }}
-                    className="w-full py-2.5 bg-white hover:bg-brand-bg text-brand-secondary border border-brand-border text-xs font-bold rounded-xl transition-all cursor-pointer text-center"
-                  >
-                    Cancel & Return to Login
-                  </button>
                 </div>
               )}
-            </form>
+            </div>
           ) : (
             /* Login forms (resident / staff) */
             <div className="space-y-5 animate-fade-in">
@@ -700,7 +723,8 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
                           onClick={() => {
                             setIsForgotMode(true);
                             setForgotEmail(residentEmail);
-                            setForgotStatus('');
+                            setForgotStatus(null);
+                            setForgotEmailSent(false);
                           }}
                           className="text-[11px] font-bold text-brand-primary hover:underline cursor-pointer"
                         >
@@ -765,7 +789,21 @@ export default function LoginView({ tenants, onLogin, onSignUp, onUpdateTenant }
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-brand-secondary">Security PIN / Password</label>
+                      <div className="flex justify-between items-center">
+                        <label className="block text-xs font-bold text-brand-secondary">Security PIN / Password</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsForgotMode(true);
+                            setForgotEmail(staffEmail);
+                            setForgotStatus(null);
+                            setForgotEmailSent(false);
+                          }}
+                          className="text-[11px] font-bold text-natural-olive hover:underline cursor-pointer"
+                        >
+                          Forgot Password?
+                        </button>
+                      </div>
                       <input
                         type="password"
                         required

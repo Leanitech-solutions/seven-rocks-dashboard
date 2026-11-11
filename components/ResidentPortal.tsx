@@ -879,7 +879,7 @@ export default function ResidentPortal({
 
             <div className="text-center pt-2">
               <p className="text-[10px] text-brand-stone font-bold uppercase tracking-wider">
-                Please wait or contact our Berlin HQ operations if you have questions.
+                Please wait or contact our Seven Rocks operations if you have questions.
               </p>
             </div>
           </div>

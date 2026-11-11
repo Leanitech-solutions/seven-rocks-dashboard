@@ -39,6 +39,13 @@ export interface SendTicketEmailParams {
   portalUrl?: string;
 }
 
+export interface SendPasswordResetEmailParams {
+  toEmail: string;
+  userName?: string;
+  resetUrl: string;
+  token: string;
+}
+
 export interface EmailTransportInfo {
   transporter: nodemailer.Transporter;
   type: 'gmail' | 'smtp';
@@ -375,5 +382,79 @@ export async function sendTicketUpdateEmail({
     to: toEmail,
     subject: emailSubject,
     html: htmlContent,
+  });
+}
+
+/**
+ * Sends a secure password reset link email to a resident or administrator.
+ */
+export async function sendPasswordResetEmail({
+  toEmail,
+  userName,
+  resetUrl,
+  token,
+}: SendPasswordResetEmailParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const subject = `Reset your Seven Rocks account password`;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px 12px; color: #1e293b; }
+          .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 36px 32px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.04); }
+          .brand { font-size: 20px; font-weight: 800; color: #059669; letter-spacing: -0.5px; margin-bottom: 24px; text-transform: uppercase; }
+          h2 { color: #0f172a; font-size: 22px; font-weight: 700; margin-top: 0; margin-bottom: 12px; }
+          p { font-size: 15px; line-height: 1.6; color: #475569; margin: 12px 0; }
+          .btn-container { margin: 28px 0; text-align: center; }
+          .btn { background-color: #059669; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; display: inline-block; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25); }
+          .link-box { background: #f8fafc; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #334155; word-break: break-all; margin-top: 16px; border: 1px solid #cbd5e1; }
+          .warning-text { font-size: 13px; color: #64748b; line-height: 1.5; margin-top: 24px; background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; }
+          .warning-text strong { color: #92400e; }
+          .warning-text ul { margin: 6px 0 0 16px; padding: 0; }
+          .footer { margin-top: 32px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; line-height: 1.5; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="brand">Seven Rocks Co-Living</div>
+          <h2>Password Reset Request</h2>
+          <p>Hello ${userName || 'Resident'},</p>
+          <p>We received a request to reset the password for your Seven Rocks account (<strong>${toEmail}</strong>). Click the button below to choose a new secure password:</p>
+          
+          <div class="btn-container">
+            <a href="${resetUrl}" class="btn" target="_blank">Reset Password</a>
+          </div>
+
+          <p style="font-size: 13px;">Or copy and paste this link into your web browser:</p>
+          <div class="link-box">${resetUrl}</div>
+
+          <div class="warning-text">
+            <strong>Security Notice:</strong>
+            <ul>
+              <li>This password reset link is valid for <strong>1 hour</strong> and can only be used once.</li>
+              <li>If you did not request this password reset, please ignore this email or contact support if you suspect unauthorized activity. Your current password remains secure.</li>
+            </ul>
+          </div>
+
+          <div class="footer">
+            &copy; ${new Date().getFullYear()} Seven Rocks Property Management. All rights reserved.<br>
+            Seven Rocks Co-Living • Vienna & Berlin
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const textContent = `Hello ${userName || 'Resident'},\n\nWe received a request to reset your Seven Rocks account password (${toEmail}).\n\nPlease visit the link below to set a new password:\n\n${resetUrl}\n\nThis link is valid for 1 hour. If you did not request this, you can safely ignore this email.\n\n— Seven Rocks Co-Living Team`;
+
+  return sendEmail({
+    to: toEmail,
+    subject,
+    html: htmlContent,
+    text: textContent,
   });
 }

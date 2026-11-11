@@ -234,7 +234,7 @@ export default function TenantsView({
 
   // Unit Assignment states
   const [assignRoomNum, setAssignRoomNum] = useState('');
-  const [assignBuilding, setAssignBuilding] = useState('Berlin Mitte Central');
+  const [assignBuilding, setAssignBuilding] = useState('Seven Rocks');
   const [assignPropertyType, setAssignPropertyType] = useState('Co-Living');
   const [assignPropertyLocation, setAssignPropertyLocation] = useState('');
   const [assignStartDate, setAssignStartDate] = useState('');
@@ -257,7 +257,7 @@ export default function TenantsView({
     const selected = tenants.find(t => t.id === selectedTenantId);
     if (selected) {
       setAssignRoomNum(selected.roomNumber || '');
-      setAssignBuilding(selected.propertyLocation || selected.building || 'Berlin Mitte Central');
+      setAssignBuilding(selected.propertyLocation || selected.building || 'Seven Rocks');
       setAssignPropertyType(selected.propertyType || 'Co-Living');
       setAssignPropertyLocation(selected.propertyLocation || selected.building || '');
       setAssignStartDate(selected.contractStartDate || '2026-07-09');
@@ -1401,7 +1401,7 @@ export default function TenantsView({
                   const updated: Tenant = {
                     ...selectedTenant,
                     roomNumber: assignRoomNum.trim(),
-                    building: assignPropertyLocation.trim() || 'Berlin Mitte Central',
+                    building: assignPropertyLocation.trim() || 'Seven Rocks',
                     propertyType: assignPropertyType,
                     propertyLocation: assignPropertyLocation.trim(),
                     contractStartDate: assignStartDate,
@@ -1414,7 +1414,7 @@ export default function TenantsView({
                   onAddActivity(
                     'tenant',
                     'Assigned Unit & Checked-In',
-                    `Admin approved application & checked-in ${selectedTenant.name}. Assigned ${assignPropertyType} at ${assignPropertyLocation.trim() || 'Berlin Mitte Central'} (Unit: ${assignRoomNum.trim()}) for dates ${assignStartDate} to ${assignEndDate} (${calculatedLength} months).`
+                    `Admin approved application & checked-in ${selectedTenant.name}. Assigned ${assignPropertyType} at ${assignPropertyLocation.trim() || 'Seven Rocks'} (Unit: ${assignRoomNum.trim()}) for dates ${assignStartDate} to ${assignEndDate} (${calculatedLength} months).`
                   );
                   showToast(`Room ${assignRoomNum.trim()} allocated to ${selectedTenant.name}! Move-In Escrow Invoice generated.`);
                   setAssignRoomNum('');
@@ -1442,7 +1442,7 @@ export default function TenantsView({
                       <label className="block font-bold text-amber-900">Property Location (Optional)</label>
                       <input 
                         type="text" 
-                        placeholder="e.g. Berlin Mitte Central"
+                        placeholder="e.g. Seven Rocks"
                         value={assignPropertyLocation}
                         onChange={(e) => setAssignPropertyLocation(e.target.value)}
                         className="w-full bg-white border border-amber-200 rounded-lg p-1.5 text-[10px] font-semibold text-brand-dark focus:outline-none"
