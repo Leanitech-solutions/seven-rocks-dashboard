@@ -3,7 +3,17 @@ import { NextResponse } from 'next/server';
 export const SESSION_COOKIE_NAME = 'seven_rocks_session';
 export const USER_COOKIE_NAME = 'seven_rocks_user';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'seven_rocks_super_secret_jwt_key_2026_operations';
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('CRITICAL SECURITY ERROR: JWT_SECRET environment variable is missing in production.');
+    }
+    console.warn('⚠️ [AUTH WARNING] JWT_SECRET environment variable is missing. Set JWT_SECRET in .env.local.');
+    return 'seven_rocks_local_dev_fallback_secret_must_set_in_production_env';
+  }
+  return secret;
+}
 
 export interface AuthSession {
   id: string;
@@ -43,9 +53,10 @@ function base64urlDecode(str: string): string {
 /** Helper to get HMAC-SHA256 crypto key via Web Crypto API (Edge & Node compatible) */
 async function getCryptoKey(): Promise<CryptoKey> {
   const enc = new TextEncoder();
+  const secret = getJwtSecret();
   return await crypto.subtle.importKey(
     'raw',
-    enc.encode(JWT_SECRET),
+    enc.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify']
@@ -114,19 +125,8 @@ export async function verifyJWT(token?: string | null): Promise<AuthSession | nu
 export async function parseSessionCookie(cookieValue?: string | null): Promise<AuthSession | null> {
   if (!cookieValue) return null;
 
-  const verified = await verifyJWT(cookieValue);
-  if (verified) return verified;
-
-  // Fallback check if plain JSON string
-  try {
-    const decoded = decodeURIComponent(cookieValue);
-    const parsed = JSON.parse(decoded);
-    if (parsed && parsed.email && parsed.role && (parsed.role === 'admin' || parsed.role === 'super_admin' || parsed.role === 'tenant')) {
-      return parsed;
-    }
-  } catch {}
-
-  return null;
+  // Strict cryptographic JWT signature verification only (no unsigned JSON backdoors)
+  return await verifyJWT(cookieValue);
 }
 
 /** Attaches signed JWT session cookie & client user info cookie to a NextResponse */
