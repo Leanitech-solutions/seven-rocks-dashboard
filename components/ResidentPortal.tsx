@@ -470,6 +470,48 @@ export default function ResidentPortal({
   const tenantTickets = tickets.filter(t => t.tenantId === tenant.id || t.tenantName === tenant.name);
   const tenantInvoices = useMemo(() => {
     const list = [...invoices.filter(i => i.tenantId === tenant.id || i.tenantName === tenant.name)];
+    
+    // Also check if primary contractUrl holds an invoice file
+    if (tenant.contractUrl && (/invoice/i.test(tenant.contractUrl) || /invoice/i.test(tenant.contractFileName || ''))) {
+      const fileName = tenant.contractFileName || 'Invoice_Document.pdf';
+      const numMatch = fileName.match(/Invoice[_-]?([A-Za-z0-9]+)/i) || tenant.contractUrl.match(/Invoice[_-]?([A-Za-z0-9]+)/i);
+      const invId = numMatch ? numMatch[1] : fileName.replace(/\.pdf$/i, '');
+      const alreadyExists = list.some(
+        m => m.id === invId || m.notes?.includes(invId) || m.invoiceFileName === fileName
+      );
+      if (!alreadyExists) {
+        const rent = Number(tenant.monthlyRent) || 1200;
+        const vat = Math.round(rent * 0.10 * 100) / 100;
+        list.unshift({
+          id: invId,
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          roomNumber: tenant.roomNumber || '',
+          building: tenant.building || '',
+          date: tenant.contractStartDate || new Date().toISOString().split('T')[0],
+          dueDate: tenant.contractEndDate || '2026-11-29',
+          rentAmount: rent,
+          extraPersonSurcharge: 0,
+          addOnTotal: 0,
+          adminFee: 0,
+          depositAmount: 0,
+          subtotal: rent,
+          vatRate: 10,
+          vatAmount: vat,
+          totalAmount: rent + vat,
+          status: 'Pending',
+          paymentMethod: '',
+          paymentDate: '',
+          type: 'Standard Invoice',
+          description: 'Monthly Serviced Residence Fee',
+          notes: `Invoice No: ${invId}`,
+          invoiceFileName: fileName,
+          invoiceFileUrl: tenant.contractUrl,
+          downloadUrl: tenant.contractDownloadUrl || tenant.contractUrl,
+        });
+      }
+    }
+
     // Also include any invoice documents stored in tenant.additionalDocs
     const additional = tenant.additionalDocs || [];
     for (const doc of additional) {

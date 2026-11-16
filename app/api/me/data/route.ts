@@ -139,6 +139,54 @@ export async function GET() {
           };
         });
 
+        // Check if primary contractUrl holds an invoice file and include it in Rent Invoices Ledger
+        const contractUrl = tenant.contractUrl || (tenant as any).contract_url;
+        if (contractUrl && /invoice/i.test(contractUrl)) {
+          let fileName = 'Invoice_Document.pdf';
+          try {
+            const urlObj = new URL(contractUrl, 'http://localhost');
+            fileName = urlObj.searchParams.get('name') || contractUrl.split('/').pop()?.split('?')[0] || 'Invoice_Document.pdf';
+          } catch {
+            fileName = contractUrl.split('/').pop() || 'Invoice_Document.pdf';
+          }
+          const numMatch = fileName.match(/Invoice[_-]?([A-Za-z0-9]+)/i) || contractUrl.match(/Invoice[_-]?([A-Za-z0-9]+)/i);
+          const invId = numMatch ? numMatch[1] : fileName.replace(/\.pdf$/i, '');
+          const alreadyExists = mapped.some(
+            m => m.id === invId || m.notes?.includes(invId) || m.invoiceFileName === fileName
+          );
+          if (!alreadyExists) {
+            const rent = Number(tenant.rentAmount) || 1200;
+            const vat = Math.round(rent * 0.10 * 100) / 100;
+            mapped.unshift({
+              id: invId,
+              tenantId: tenant.id,
+              tenantName: tenant.fullName,
+              roomNumber: tenant.roomNumber || '',
+              building: tenant.propertyLocation || '',
+              date: tenant.leaseStart ? String(tenant.leaseStart) : new Date().toISOString().split('T')[0],
+              dueDate: tenant.leaseEnd ? String(tenant.leaseEnd) : '2026-11-29',
+              rentAmount: rent,
+              extraPersonSurcharge: 0,
+              addOnTotal: 0,
+              adminFee: 0,
+              depositAmount: 0,
+              subtotal: rent,
+              vatRate: 10,
+              vatAmount: vat,
+              totalAmount: rent + vat,
+              status: 'Pending',
+              paymentMethod: '',
+              paymentDate: '',
+              type: 'Standard Invoice',
+              description: 'Monthly Serviced Residence Fee',
+              notes: `Invoice No: ${invId}`,
+              invoiceFileName: fileName,
+              invoiceFileUrl: contractUrl,
+              downloadUrl: contractUrl,
+            } as any);
+          }
+        }
+
         // Scan additional_docs for any uploaded invoice files and include them in Rent Invoices Ledger
         const tenantDocs = Array.isArray(tenant.additionalDocs)
           ? tenant.additionalDocs
