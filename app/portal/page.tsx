@@ -52,6 +52,12 @@ export default function PortalPage() {
             monthlyRent: 0,
             oneTimeAdminFee: 90,
             activeAddOns: [],
+            contractUrl: '',
+            contractFileName: '',
+            additionalDocs: [],
+            checkInImages: [],
+            checkOutImages: [],
+            inventoryItems: [],
           });
         }
       }

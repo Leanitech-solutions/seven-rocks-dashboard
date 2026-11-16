@@ -28,6 +28,30 @@ export async function GET() {
     }
 
     const t = rows[0];
+
+    // Compute clean contract file name and download URL
+    let contractFileName = '';
+    let contractDownloadUrl = '';
+    if (t.contractUrl) {
+      if (t.contractUrl.includes('name=')) {
+        try {
+          const u = new URL(t.contractUrl, 'http://localhost');
+          contractFileName = u.searchParams.get('name') || '';
+        } catch {}
+      }
+      if (!contractFileName) {
+        contractFileName = t.contractUrl.split('/').pop()?.replace(/^\d+-/, '') || 'lease_agreement.pdf';
+      }
+      contractDownloadUrl = t.contractUrl.includes('/api/docs/file')
+        ? t.contractUrl.replace('mode=inline', 'mode=attachment')
+        : t.contractUrl;
+    }
+
+    const additionalDocs = Array.isArray(t.additionalDocs) ? t.additionalDocs : Array.isArray((t as any).additional_docs) ? (t as any).additional_docs : [];
+    const checkInImages = Array.isArray(t.checkInImages) ? t.checkInImages : Array.isArray((t as any).check_in_images) ? (t as any).check_in_images : [];
+    const checkOutImages = Array.isArray(t.checkOutImages) ? t.checkOutImages : Array.isArray((t as any).check_out_images) ? (t as any).check_out_images : [];
+    const inventoryItems = Array.isArray(t.inventoryItems) ? t.inventoryItems : Array.isArray((t as any).inventory_items) ? (t as any).inventory_items : [];
+
     return NextResponse.json({
       tenant: {
         id: t.id,
@@ -47,10 +71,17 @@ export async function GET() {
         hasExtraPerson: t.hasExtraPerson || false,
         idDocumentUrl: t.idDocumentUrl || '',
         idDocumentVerified: t.idVerificationStatus === 'verified',
+        contractUrl: t.contractUrl,
+        contractFileName,
+        contractDownloadUrl,
         contractVerified: t.contractVerified || false,
         activeAddOns: Array.isArray(t.activeAddOns) ? t.activeAddOns : [],
         propertyType: t.propertyType || '',
         propertyLocation: t.propertyLocation || '',
+        additionalDocs,
+        checkInImages,
+        checkOutImages,
+        inventoryItems,
       }
     });
   } catch (error: any) {

@@ -1,4 +1,4 @@
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent, useEffect, useMemo } from 'react';
 import { useToast } from '../lib/useToast';
 import { useDialog } from '../lib/useDialog';
 import { formatId } from '../lib/formatId';
@@ -36,7 +36,8 @@ import {
   ChevronRight,
   Eye,
   Printer,
-  Download
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { OFFICIAL_COMPANY_DETAILS } from './DocumentGeneratorView';
 
@@ -124,7 +125,18 @@ export default function ResidentPortal({
 
   // Success alert states
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [selectedInspectionImage, setSelectedInspectionImage] = useState<string | null>(null);
+  const [selectedInspectionImage, setSelectedInspectionImage] = useState<{
+    url: string;
+    title: string;
+    filename?: string;
+  } | string | null>(null);
+  const [activePreviewDoc, setActivePreviewDoc] = useState<{
+    fileName: string;
+    fileUrl: string;
+    downloadUrl?: string;
+    fileSize?: string;
+    uploadedAt?: string;
+  } | null>(null);
 
   // --- Add-ons request form states ---
   const [activeCatalogTab, setActiveCatalogTab] = useState<'all' | 'fitness' | 'kits' | 'utilities' | 'other'>('all');
@@ -456,7 +468,52 @@ export default function ResidentPortal({
   const tenantAddOnRequests = addOnRequests.filter(r => r.tenantId === tenant.id || r.tenantName === tenant.name);
   const tenantHousekeepings = housekeepings.filter(h => h.tenantId === tenant.id || h.tenantName === tenant.name);
   const tenantTickets = tickets.filter(t => t.tenantId === tenant.id || t.tenantName === tenant.name);
-  const tenantInvoices = invoices.filter(i => i.tenantId === tenant.id || i.tenantName === tenant.name);
+  const tenantInvoices = useMemo(() => {
+    const list = [...invoices.filter(i => i.tenantId === tenant.id || i.tenantName === tenant.name)];
+    // Also include any invoice documents stored in tenant.additionalDocs
+    const additional = tenant.additionalDocs || [];
+    for (const doc of additional) {
+      if (/invoice/i.test(doc.name || '') || /invoice/i.test(doc.url || '')) {
+        const numMatch = doc.name?.match(/Invoice[_-]?([A-Za-z0-9]+)/i);
+        const invId = numMatch ? numMatch[1] : (doc.name || 'INV-DOC').replace(/\.pdf$/i, '');
+        const alreadyExists = list.some(
+          m => m.id === invId || m.notes?.includes(invId) || m.invoiceFileName === doc.name
+        );
+        if (!alreadyExists) {
+          const rent = Number(tenant.monthlyRent) || 1200;
+          const vat = Math.round(rent * 0.10 * 100) / 100;
+          list.unshift({
+            id: invId,
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            roomNumber: tenant.roomNumber || '',
+            building: tenant.building || '',
+            date: doc.uploadedAt || tenant.contractStartDate || new Date().toISOString().split('T')[0],
+            dueDate: tenant.contractEndDate || '2026-11-29',
+            rentAmount: rent,
+            extraPersonSurcharge: 0,
+            addOnTotal: 0,
+            adminFee: 0,
+            depositAmount: 0,
+            subtotal: rent,
+            vatRate: 10,
+            vatAmount: vat,
+            totalAmount: rent + vat,
+            status: 'Pending',
+            paymentMethod: '',
+            paymentDate: '',
+            type: 'Standard Invoice',
+            description: 'Monthly Serviced Residence Fee',
+            notes: `Invoice No: ${invId}`,
+            invoiceFileName: doc.name,
+            invoiceFileUrl: doc.url,
+            downloadUrl: doc.downloadUrl || doc.url,
+          });
+        }
+      }
+    }
+    return list;
+  }, [invoices, tenant]);
 
   // Relevant announcements target audience matching
   const matchingNotifications = notifications.filter(n => {
@@ -1146,34 +1203,120 @@ export default function ResidentPortal({
                   )}
                 </div>
 
-                {/* Lease Contract Card */}
-                <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs">
-                  <h4 className="font-bold text-brand-dark text-sm font-serif italic mb-4 border-b border-brand-border pb-3 flex items-center gap-2">
-                    <FileText className="h-4.5 w-4.5 text-brand-primary" />
-                    <span>Your Signed Lease Agreement</span>
-                  </h4>
+                {/* Lease Contract & Official Documents Card */}
+                <div className="bg-white rounded-2xl border border-brand-border p-6 shadow-xs space-y-5">
+                  <div className="flex items-center justify-between border-b border-brand-border pb-3">
+                    <h4 className="font-bold text-brand-dark text-sm font-serif italic flex items-center gap-2">
+                      <FileText className="h-4.5 w-4.5 text-brand-primary" />
+                      <span>Your Signed Lease Agreement & Documents</span>
+                    </h4>
+                    <span className="text-[10.5px] bg-[#EAE8E1] border border-[#DCDAD2] text-brand-primary font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Official Compliance
+                    </span>
+                  </div>
 
-                  {tenant.contractFileName ? (
-                    <div className="p-4 bg-brand-surface border border-brand-border rounded-xl flex items-center justify-between text-xs">
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        <FileText className="h-5 w-5 text-emerald-600 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="font-bold text-brand-dark truncate">{tenant.contractFileName}</p>
-                          <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1 font-serif italic">
-                            <ShieldCheck className="h-3.5 w-3.5" /> Fully Signed, Sealed, & Legally Bonded
-                          </p>
+                  {/* Primary Lease Agreement */}
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-brand-stone uppercase tracking-wider block">Primary Leasehold Agreement</span>
+                    {tenant.contractUrl ? (
+                      <div className="p-4 bg-brand-surface border border-brand-border rounded-xl flex items-center justify-between text-xs">
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <FileText className="h-5 w-5 text-brand-primary shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-bold text-brand-dark truncate">{tenant.contractFileName || 'Seven_Rocks_Lease_Agreement.pdf'}</p>
+                            <p className="text-[10px] text-brand-stone font-mono">
+                              Signed on {tenant.contractStartDate} &bull; Valid to {tenant.contractEndDate}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActivePreviewDoc({
+                                fileName: tenant.contractFileName || 'Seven_Rocks_Lease_Agreement.pdf',
+                                fileUrl: tenant.contractUrl!,
+                                downloadUrl: tenant.contractDownloadUrl || tenant.contractUrl,
+                                uploadedAt: tenant.contractStartDate,
+                              });
+                            }}
+                            className="text-[10.5px] font-bold text-brand-secondary hover:text-brand-primary bg-white border border-brand-border px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3" />
+                            <span>View</span>
+                          </button>
+                          <a
+                            href={tenant.contractDownloadUrl || tenant.contractUrl}
+                            download={tenant.contractFileName || 'Seven_Rocks_Lease_Agreement.pdf'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10.5px] font-bold text-brand-primary hover:text-brand-dark bg-white border border-brand-border px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                            title="Download Agreement"
+                          >
+                            <Download className="h-3 w-3" />
+                          </a>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => showToast(`File preview: ${tenant.contractFileName}`, 'info')}
-                        className="text-[10.5px] font-bold text-brand-secondary hover:text-brand-primary bg-white border border-brand-border px-3 py-1.5 rounded-lg transition-colors shrink-0 cursor-pointer"
-                      >
-                        View Agreement
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-xs text-brand-stone italic bg-brand-surface border border-dashed border-brand-border rounded-xl">
-                      Your signed lease agreement is currently pending file upload by Seven Rocks Administration.
+                    ) : (
+                      <p className="text-xs text-brand-stone italic py-2">No lease agreement uploaded yet.</p>
+                    )}
+                  </div>
+
+                  {/* Additional Agreements & Compliance Documents */}
+                  {tenant.additionalDocs && tenant.additionalDocs.length > 0 && (
+                    <div className="space-y-2.5 pt-3 border-t border-brand-surface">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-brand-stone uppercase tracking-wider block">Additional Vault &amp; Compliance Documents</span>
+                        <span className="text-[10px] font-semibold text-brand-stone">{tenant.additionalDocs.length} Document(s)</span>
+                      </div>
+                      <div className="space-y-2">
+                        {tenant.additionalDocs.map((doc, idx) => (
+                          <div key={`add-doc-${idx}`} className="p-3 bg-brand-surface/60 border border-brand-border rounded-xl flex items-center justify-between text-xs">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <FileText className="h-4.5 w-4.5 text-brand-secondary shrink-0" />
+                              <div className="min-w-0">
+                                <p className="font-bold text-brand-dark truncate">{doc.name}</p>
+                                <p className="text-[10px] text-brand-stone font-mono">
+                                  {doc.uploadedAt ? `Uploaded ${doc.uploadedAt}` : 'Compliance Record'}
+                                  {doc.size ? ` • ${doc.size}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center space-x-2 shrink-0">
+                              {doc.url && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActivePreviewDoc({
+                                      fileName: doc.name,
+                                      fileUrl: doc.url!,
+                                      downloadUrl: doc.downloadUrl || doc.url,
+                                      uploadedAt: doc.uploadedAt,
+                                      fileSize: doc.size,
+                                    });
+                                  }}
+                                  className="text-[10.5px] font-bold text-brand-secondary hover:text-brand-primary bg-white border border-brand-border px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  <span>View</span>
+                                </button>
+                              )}
+                              {(doc.downloadUrl || doc.url) && (
+                                <a
+                                  href={doc.downloadUrl || doc.url}
+                                  download={doc.name}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10.5px] font-bold text-brand-primary hover:text-brand-dark bg-white border border-brand-border px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                                  title="Download File"
+                                >
+                                  <Download className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1200,7 +1343,11 @@ export default function ResidentPortal({
                           {tenant.checkInImages.map((img, i) => (
                             <div 
                               key={`ch-in-${i}`}
-                              onClick={() => setSelectedInspectionImage(img)}
+                              onClick={() => setSelectedInspectionImage({
+                                url: img,
+                                title: `Check-In Inspection Photo #${i + 1}`,
+                                filename: `checkin-photo-${i + 1}.png`
+                              })}
                               className="group relative h-24 rounded-xl border border-brand-border overflow-hidden cursor-pointer hover:border-brand-primary transition-all shadow-2xs"
                             >
                               <img 
@@ -1230,7 +1377,11 @@ export default function ResidentPortal({
                           {tenant.checkOutImages.map((img, i) => (
                             <div 
                               key={`ch-out-${i}`}
-                              onClick={() => setSelectedInspectionImage(img)}
+                              onClick={() => setSelectedInspectionImage({
+                                url: img,
+                                title: `Check-Out Inspection Photo #${i + 1}`,
+                                filename: `checkout-photo-${i + 1}.png`
+                              })}
                               className="group relative h-24 rounded-xl border border-brand-border overflow-hidden cursor-pointer hover:border-brand-primary transition-all shadow-2xs"
                             >
                               <img 
@@ -1837,18 +1988,38 @@ export default function ResidentPortal({
 
                         return (
                           <tr key={inv.id} className="hover:bg-brand-surface/40">
-                            <td className="py-4 font-mono font-bold text-brand-dark">
-                              <div>{formatId(inv.id)}</div>
-                              {inv.invoiceFileName && (
-                                <button
-                                  type="button"
-                                  onClick={() => showToast(`File preview: ${inv.invoiceFileName}`, 'info')}
-                                  className="text-[9px] text-emerald-700 hover:text-emerald-800 underline flex items-center gap-0.5 mt-0.5 font-sans font-semibold cursor-pointer"
-                                >
-                                  <Receipt className="h-2.5 w-2.5 shrink-0" />
-                                  <span>View File</span>
-                                </button>
-                              )}
+                            <td className="py-4 font-mono text-xs">
+                              {(() => {
+                                const invNumber = inv.notes?.match(/Invoice\s*(?:No\.?|#)?\s*:?\s*([A-Za-z0-9-]+)/i)?.[1]
+                                  || (inv.id && (inv.id.startsWith('SR') || inv.id.startsWith('INV')) ? inv.id : formatId(inv.id));
+                                return (
+                                  <div>
+                                    <span className="font-mono font-bold text-brand-dark block text-xs">{invNumber}</span>
+                                    {(inv.invoiceFileUrl || inv.downloadUrl || inv.invoiceFileName) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (inv.invoiceFileUrl || inv.downloadUrl) {
+                                            setActivePreviewDoc({
+                                              fileName: inv.invoiceFileName || `Invoice_${invNumber}.pdf`,
+                                              fileUrl: inv.invoiceFileUrl || inv.downloadUrl!,
+                                              downloadUrl: inv.downloadUrl || inv.invoiceFileUrl,
+                                              uploadedAt: inv.date,
+                                            });
+                                          } else {
+                                            setViewingInvoice(inv);
+                                          }
+                                        }}
+                                        className="text-[9.5px] text-emerald-700 hover:text-emerald-800 underline flex items-center gap-1 mt-0.5 font-sans font-semibold cursor-pointer"
+                                        title="Inspect attached invoice PDF"
+                                      >
+                                        <Receipt className="h-3 w-3 shrink-0" />
+                                        <span className="truncate max-w-[140px]">{inv.invoiceFileName || 'View PDF Invoice'}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="py-4 font-mono">{inv.date}</td>
                             <td className="py-4 font-mono">{inv.dueDate}</td>
@@ -1870,22 +2041,45 @@ export default function ResidentPortal({
                               <div className="flex items-center justify-end space-x-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => setViewingInvoice(inv)}
+                                  onClick={() => {
+                                    if (inv.invoiceFileUrl || inv.downloadUrl) {
+                                      setActivePreviewDoc({
+                                        fileName: inv.invoiceFileName || `Invoice_${inv.id}.pdf`,
+                                        fileUrl: inv.invoiceFileUrl || inv.downloadUrl!,
+                                        downloadUrl: inv.downloadUrl || inv.invoiceFileUrl,
+                                        uploadedAt: inv.date,
+                                      });
+                                    } else {
+                                      setViewingInvoice(inv);
+                                    }
+                                  }}
                                   className="px-2.5 py-1.5 bg-brand-surface hover:bg-[#E5E0D8] text-brand-dark border border-brand-border rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-colors cursor-pointer"
-                                  title="View and print official invoice"
+                                  title="View and inspect official invoice"
                                 >
                                   <Eye className="h-3 w-3 text-brand-primary" />
                                   <span>View Invoice</span>
                                 </button>
+                                {(inv.downloadUrl || inv.invoiceFileUrl) && (
+                                  <a
+                                    href={inv.downloadUrl || inv.invoiceFileUrl}
+                                    download={inv.invoiceFileName || `Invoice_${inv.id}.pdf`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 bg-brand-surface hover:bg-[#E5E0D8] text-brand-dark border border-brand-border rounded-lg text-[10px] font-bold transition-colors cursor-pointer"
+                                    title="Download PDF Invoice"
+                                  >
+                                    <Download className="h-3 w-3 text-brand-primary" />
+                                  </a>
+                                )}
                                 {inv.status === 'Paid' ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-surface text-brand-primary border border-brand-border">
-                                    Paid & Settled
+                                    Paid &amp; Settled
                                   </span>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => setCheckoutInvoice(inv)}
-                                    className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer"
+                                    className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer shrink-0"
                                   >
                                     Request Desk Invoice
                                   </button>
@@ -2314,7 +2508,10 @@ export default function ResidentPortal({
                         <tr>
                           <td className="font-medium text-slate-600">Invoice no.</td>
                           <td>:</td>
-                          <td className="font-bold font-mono text-slate-900">{formatId(viewingInvoice.id)}</td>
+                          <td className="font-bold font-mono text-slate-900">
+                            {viewingInvoice.notes?.match(/Invoice\s*(?:No\.?|#)?\s*:?\s*([A-Za-z0-9-]+)/i)?.[1]
+                              || (viewingInvoice.id && (viewingInvoice.id.startsWith('SR') || viewingInvoice.id.startsWith('INV')) ? viewingInvoice.id : formatId(viewingInvoice.id))}
+                          </td>
                         </tr>
                         <tr>
                           <td className="font-medium text-slate-600">Inv. Date</td>
@@ -2852,32 +3049,156 @@ export default function ResidentPortal({
         </div>
       )}
 
-      {/* Lightbox Modal for Inspection Images */}
-      {selectedInspectionImage && (
-        <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-[100] backdrop-blur-md animate-fade-in">
-          <div className="relative max-w-4xl w-full flex flex-col items-center">
-            <button
-              onClick={() => setSelectedInspectionImage(null)}
-              className="absolute top-[-40px] right-0 text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
-              title="Close Lightbox"
-            >
-              <X className="h-5 w-5" />
-              <span>Close</span>
-            </button>
-            <div className="bg-white rounded-2xl border border-white/10 overflow-hidden p-2 shadow-2xl max-h-[80vh] flex items-center justify-center">
-              <img 
-                src={selectedInspectionImage} 
-                alt="Inspection Close-up" 
-                className="max-h-[75vh] max-w-full object-contain rounded-xl"
-                referrerPolicy="no-referrer"
-              />
+      {/* Document Preview Modal */}
+      {activePreviewDoc && (
+        <div 
+          className="fixed inset-0 bg-slate-950/85 flex items-center justify-center p-4 z-[100] backdrop-blur-md animate-fade-in"
+          onClick={() => setActivePreviewDoc(null)}
+        >
+          <div 
+            className="relative max-w-4xl w-full bg-white rounded-2xl border border-brand-border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 bg-brand-surface border-b border-brand-border flex items-center justify-between">
+              <div className="flex items-center space-x-3 min-w-0">
+                <FileText className="h-5 w-5 text-brand-primary shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm text-brand-dark truncate">{activePreviewDoc.fileName}</h3>
+                  <p className="text-[10px] text-brand-stone font-mono">
+                    {activePreviewDoc.uploadedAt ? `Date: ${activePreviewDoc.uploadedAt}` : 'Official Record'}
+                    {activePreviewDoc.fileSize ? ` • ${activePreviewDoc.fileSize}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <a
+                  href={activePreviewDoc.downloadUrl || activePreviewDoc.fileUrl}
+                  download={activePreviewDoc.fileName}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-brand-bg hover:bg-brand-surface border border-brand-border text-brand-dark rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download</span>
+                </a>
+                <a
+                  href={activePreviewDoc.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-brand-bg hover:bg-brand-surface border border-brand-border text-brand-dark rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                  title="Open in new tab"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Open Tab</span>
+                </a>
+                <button
+                  onClick={() => setActivePreviewDoc(null)}
+                  className="p-1.5 text-brand-stone hover:text-brand-dark rounded-lg hover:bg-brand-surface transition-colors cursor-pointer"
+                  title="Close preview"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
-            <div className="mt-3 text-center text-white/90 text-xs font-semibold tracking-wide font-sans">
-              Property handover inspection photograph
+
+            {/* Viewer Content */}
+            <div className="p-4 bg-slate-100 flex-1 overflow-auto flex items-center justify-center min-h-[420px]">
+              {(activePreviewDoc.fileUrl.toLowerCase().includes('.pdf') || activePreviewDoc.fileName.toLowerCase().endsWith('.pdf')) ? (
+                <iframe
+                  src={activePreviewDoc.fileUrl}
+                  className="w-full h-[68vh] rounded-xl border border-brand-border bg-white shadow-inner"
+                  title={activePreviewDoc.fileName}
+                />
+              ) : (/\.(png|jpe?g|webp|gif|svg)$/i.test(activePreviewDoc.fileUrl) || /\.(png|jpe?g|webp|gif|svg)$/i.test(activePreviewDoc.fileName)) ? (
+                <img
+                  src={activePreviewDoc.fileUrl}
+                  alt={activePreviewDoc.fileName}
+                  className="max-h-[68vh] max-w-full object-contain rounded-xl shadow-sm"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="text-center p-8 space-y-3">
+                  <FileText className="h-12 w-12 text-brand-stone mx-auto" />
+                  <p className="text-xs text-brand-dark font-medium">{activePreviewDoc.fileName}</p>
+                  <p className="text-[11px] text-brand-stone">This document can be opened in a new tab or downloaded.</p>
+                  <a
+                    href={activePreviewDoc.downloadUrl || activePreviewDoc.fileUrl}
+                    download={activePreviewDoc.fileName}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-xl text-xs font-bold shadow-brand hover:opacity-95"
+                  >
+                    <Download className="h-4 w-4" />
+                    <span>Download File</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      {/* Lightbox Modal for Inspection Images */}
+      {selectedInspectionImage && (() => {
+        const inspectionUrl = typeof selectedInspectionImage === 'string' ? selectedInspectionImage : selectedInspectionImage.url;
+        const inspectionTitle = typeof selectedInspectionImage === 'string' ? 'Property Handover Inspection Photo' : (selectedInspectionImage.title || 'Property Handover Inspection Photo');
+        const inspectionFilename = typeof selectedInspectionImage === 'string' ? 'inspection-photo.png' : (selectedInspectionImage.filename || 'inspection-photo.png');
+        const inspectionDownloadUrl = inspectionUrl.includes('/api/docs/file') ? inspectionUrl.replace('mode=inline', 'mode=attachment') : inspectionUrl;
+
+        return (
+          <div 
+            className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-[100] backdrop-blur-md animate-fade-in"
+            onClick={() => setSelectedInspectionImage(null)}
+          >
+            <div className="relative max-w-4xl w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
+              <div className="w-full flex justify-between items-center mb-2 px-1">
+                <span className="text-white/80 text-xs font-semibold">{inspectionTitle}</span>
+                <div className="flex items-center space-x-2">
+                  <a
+                    href={inspectionDownloadUrl}
+                    download={inspectionFilename}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white/80 hover:text-white px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-xs font-bold flex items-center gap-1"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download</span>
+                  </a>
+                  <a
+                    href={inspectionUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white/80 hover:text-white px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-xs font-bold flex items-center gap-1"
+                    title="Open in new tab"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    <span>Open Tab</span>
+                  </a>
+                  <button
+                    onClick={() => setSelectedInspectionImage(null)}
+                    className="text-white/80 hover:text-white p-1.5 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+                    title="Close Lightbox"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl border border-white/10 overflow-hidden p-2 shadow-2xl max-h-[80vh] flex items-center justify-center">
+                <img 
+                  src={inspectionUrl} 
+                  alt={inspectionTitle} 
+                  className="max-h-[75vh] max-w-full object-contain rounded-xl"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <div className="mt-3 text-center text-white/90 text-xs font-semibold tracking-wide font-sans">
+                {inspectionTitle}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 4. Login Alert Notification Modal */}
       {loginAlertNotification && (

@@ -139,6 +139,8 @@ export interface Invoice {
   paymentMethod?: string;
   paymentDate?: string;
   invoiceFileName?: string; // uploaded invoice file
+  invoiceFileUrl?: string; // URL to view invoice PDF
+  downloadUrl?: string; // direct download URL
   paymentChannel?: 'Online' | 'Desk';
   type?: string;
   description?: string;

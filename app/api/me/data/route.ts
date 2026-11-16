@@ -108,29 +108,87 @@ export async function GET() {
         createdAt: t.createdAt ? new Date(t.createdAt).toISOString().split('T')[0] : '',
         category: 'Maintenance',
       })),
-      invoices: invoiceRows.map(i => ({
-        id: i.id,
-        tenantId: i.tenantId,
-        tenantName: tenant.fullName,
-        roomNumber: tenant.roomNumber || '',
-        building: tenant.propertyLocation || '',
-        date: i.createdAt ? new Date(i.createdAt).toISOString().split('T')[0] : '',
-        dueDate: i.dueDate,
-        rentAmount: Number(i.rentAmount) || 0,
-        extraPersonSurcharge: Number(i.extraPersonSurcharge) || 0,
-        addOnTotal: Number(i.addOnTotal) || 0,
-        adminFee: Number(i.adminFee) || 0,
-        depositAmount: Number(i.depositAmount) || 0,
-        subtotal: Number(i.subtotal) || 0,
-        vatRate: Number(i.vatRate) || 10,
-        vatAmount: Number(i.vatAmount) || 0,
-        totalAmount: Number(i.amount) || 0,
-        status: i.status || 'Pending',
-        paymentMethod: i.paymentMethod || '',
-        paymentDate: i.paymentDate || '',
-        type: i.type,
-        description: i.description,
-      })),
+      invoices: (() => {
+        const mapped = invoiceRows.map(i => {
+          const invNoMatch = i.notes?.match(/Invoice\s*(?:No\.?|#)?\s*:?\s*([A-Za-z0-9-]+)/i);
+          const customNo = invNoMatch ? invNoMatch[1] : undefined;
+          return {
+            id: i.id,
+            tenantId: i.tenantId,
+            tenantName: tenant.fullName,
+            roomNumber: tenant.roomNumber || '',
+            building: tenant.propertyLocation || '',
+            date: i.createdAt ? new Date(i.createdAt).toISOString().split('T')[0] : '',
+            dueDate: i.dueDate,
+            rentAmount: Number(i.rentAmount) || 0,
+            extraPersonSurcharge: Number(i.extraPersonSurcharge) || 0,
+            addOnTotal: Number(i.addOnTotal) || 0,
+            adminFee: Number(i.adminFee) || 0,
+            depositAmount: Number(i.depositAmount) || 0,
+            subtotal: Number(i.subtotal) || 0,
+            vatRate: Number(i.vatRate) || 10,
+            vatAmount: Number(i.vatAmount) || 0,
+            totalAmount: Number(i.amount) || 0,
+            status: i.status || 'Pending',
+            paymentMethod: i.paymentMethod || '',
+            paymentDate: i.paymentDate || '',
+            type: i.type,
+            description: i.description,
+            notes: i.notes,
+            invoiceFileName: customNo ? `Invoice_${customNo}.pdf` : undefined,
+          };
+        });
+
+        // Scan additional_docs for any uploaded invoice files and include them in Rent Invoices Ledger
+        const tenantDocs = Array.isArray(tenant.additionalDocs)
+          ? tenant.additionalDocs
+          : Array.isArray((tenant as any).additional_docs)
+          ? (tenant as any).additional_docs
+          : [];
+
+        for (const doc of tenantDocs) {
+          if (/invoice/i.test(doc.name || '') || /invoice/i.test(doc.url || '')) {
+            const numMatch = doc.name?.match(/Invoice[_-]?([A-Za-z0-9]+)/i);
+            const invId = numMatch ? numMatch[1] : (doc.name || 'INV-FILE').replace(/\.pdf$/i, '');
+            const alreadyExists = mapped.some(
+              m => m.id === invId || m.notes?.includes(invId) || m.invoiceFileName === doc.name
+            );
+            if (!alreadyExists) {
+              const rent = Number(tenant.rentAmount) || 1200;
+              const vat = Math.round(rent * 0.10 * 100) / 100;
+              mapped.unshift({
+                id: invId,
+                tenantId: tenant.id,
+                tenantName: tenant.fullName,
+                roomNumber: tenant.roomNumber || '',
+                building: tenant.propertyLocation || '',
+                date: doc.uploadedAt || (tenant.leaseStart ? String(tenant.leaseStart) : new Date().toISOString().split('T')[0]),
+                dueDate: tenant.leaseEnd ? String(tenant.leaseEnd) : '2026-11-29',
+                rentAmount: rent,
+                extraPersonSurcharge: 0,
+                addOnTotal: 0,
+                adminFee: 0,
+                depositAmount: 0,
+                subtotal: rent,
+                vatRate: 10,
+                vatAmount: vat,
+                totalAmount: rent + vat,
+                status: 'Pending',
+                paymentMethod: '',
+                paymentDate: '',
+                type: 'Standard Invoice',
+                description: 'Monthly Serviced Residence Fee',
+                notes: `Invoice No: ${invId}`,
+                invoiceFileName: doc.name,
+                invoiceFileUrl: doc.url,
+                downloadUrl: doc.downloadUrl || doc.url,
+              } as any);
+            }
+          }
+        }
+
+        return mapped;
+      })(),
       notifications: notifRows.map(n => ({
         id: n.id,
         title: n.title,

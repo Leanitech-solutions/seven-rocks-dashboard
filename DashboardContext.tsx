@@ -357,6 +357,11 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         tenantLookup[t.id] = { fullName: t.name, roomNumber: t.roomNumber, propertyLocation: t.building };
       });
       const mapped = mapInvoice(created, tenantLookup);
+      if (!tenantLookup[created.tenantId]) {
+        if (invoicePayload.tenantName) mapped.tenantName = invoicePayload.tenantName;
+        if (invoicePayload.roomNumber) mapped.roomNumber = invoicePayload.roomNumber;
+        if (invoicePayload.building) mapped.building = invoicePayload.building;
+      }
       setInvoices(prev => [mapped, ...prev]);
       return mapped;
     } catch (err) {
@@ -716,6 +721,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     onUpdateTenant: handleUpdateTenant,
     onDeleteTenant: handleDeleteTenant,
     onCreateInvoice: handleCreateInvoice,
+    onAddInvoice: handleCreateInvoice,
     onAddAddOnRequest: handleAddAddOnRequest,
     onUpdateAddOnRequest: handleUpdateAddOnRequest,
     onAddCatalogItem: handleAddCatalogItem,

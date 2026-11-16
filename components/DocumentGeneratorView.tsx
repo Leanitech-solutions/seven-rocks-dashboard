@@ -154,6 +154,7 @@ export default function DocumentGeneratorView({
 
   // Toast State
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -165,7 +166,12 @@ export default function DocumentGeneratorView({
     if (docType !== 'invoice') return false;
     const cleanNum = metadata.invoiceNumber.trim().toLowerCase();
     if (!cleanNum) return false;
-    return invoices.some(inv => inv.id.trim().toLowerCase() === cleanNum);
+    return invoices.some(inv => {
+      const idMatch = inv.id.trim().toLowerCase() === cleanNum;
+      const notesMatch = inv.notes && inv.notes.toLowerCase().includes(cleanNum);
+      const descMatch = inv.description && inv.description.toLowerCase().includes(cleanNum);
+      return Boolean(idMatch || notesMatch || descMatch);
+    });
   }, [invoices, metadata.invoiceNumber, docType]);
 
   // Numerical parser helper
@@ -246,8 +252,219 @@ export default function DocumentGeneratorView({
     }
   }, [selectedTenant, extensionMonths]);
 
-  // Print & Generate Document
+  // Direct PDF Download (Client-Side HTML-to-PDF Generation via html2pdf.js)
   const handleGenerateAndDownload = async () => {
+    if (docType === 'invoice' && isDuplicateInvoice) {
+      showToast('Error: Duplicate invoice number detected. Please enter a unique invoice number.');
+      return;
+    }
+
+    const previewEl = document.getElementById('generated-document-preview');
+    if (!previewEl) {
+      showToast('Document preview element not found.');
+      return;
+    }
+
+    const documentTitle = docType === 'invoice'
+      ? `Invoice_${metadata.invoiceNumber}_${(metadata.tenantName || 'Guest').replace(/\s+/g, '_')}`
+      : `Contract_Extension_${(selectedTenant?.name || 'Guest').replace(/\s+/g, '_')}_${calculatedExtensionEndDate}`;
+
+    setIsGeneratingPdf(true);
+
+    try {
+      // Clone element for print-clean A4 dimensions without web shadows or rounded borders
+      const clone = previewEl.cloneNode(true) as HTMLElement;
+      clone.style.width = '794px';
+      clone.style.maxWidth = '794px';
+      clone.style.boxSizing = 'border-box';
+      clone.style.padding = '28px 32px';
+      clone.style.margin = '0';
+      clone.style.borderRadius = '0';
+      clone.style.border = 'none';
+      clone.style.boxShadow = 'none';
+      clone.style.background = '#ffffff';
+
+      // Ensure all tables inside clone are 100% width and table-layout fixed
+      const tables = clone.querySelectorAll('table.invoice-table');
+      tables.forEach(t => {
+        (t as HTMLElement).style.width = '100%';
+        (t as HTMLElement).style.maxWidth = '100%';
+        (t as HTMLElement).style.tableLayout = 'fixed';
+      });
+
+      // Temporarily mount clone off-screen
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.top = '-9999px';
+      container.style.left = '0';
+      container.style.width = '794px';
+      container.style.boxSizing = 'border-box';
+      container.style.zIndex = '-9999';
+      container.appendChild(clone);
+      document.body.appendChild(container);
+
+      // Sanitize colors for html2canvas compatibility (convert lab, oklch, oklab to standard rgba)
+      const colorCanvas = document.createElement('canvas');
+      colorCanvas.width = 1;
+      colorCanvas.height = 1;
+      const colorCtx = colorCanvas.getContext('2d', { willReadFrequently: true });
+
+      const toStandardRgb = (colorStr: string) => {
+        if (!colorStr || colorStr === 'transparent' || colorStr === 'inherit' || !colorCtx) return colorStr;
+        try {
+          colorCtx.clearRect(0, 0, 1, 1);
+          colorCtx.fillStyle = colorStr;
+          colorCtx.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = colorCtx.getImageData(0, 0, 1, 1).data;
+          return `rgba(${r}, ${g}, ${b}, ${+(a / 255).toFixed(3)})`;
+        } catch {
+          return colorStr;
+        }
+      };
+
+      const colorProperties: Array<keyof CSSStyleDeclaration> = [
+        'color',
+        'backgroundColor',
+        'borderColor',
+        'borderTopColor',
+        'borderRightColor',
+        'borderBottomColor',
+        'borderLeftColor',
+        'outlineColor',
+        'textDecorationColor',
+      ];
+
+      const sanitizeColors = (root: Element) => {
+        const all = [root, ...Array.from(root.querySelectorAll('*'))];
+        for (const el of all) {
+          if (!(el instanceof HTMLElement)) continue;
+          const cs = window.getComputedStyle(el);
+          for (const prop of colorProperties) {
+            const val = cs[prop as any] as string;
+            if (val && (val.includes('lab') || val.includes('oklch') || val.includes('oklab') || val.includes('color('))) {
+              (el.style as any)[prop] = toStandardRgb(val);
+            }
+          }
+        }
+      };
+
+      sanitizeColors(clone);
+
+      try {
+        const html2canvas = (await import('html2canvas')).default;
+        const { jsPDF } = await import('jspdf');
+
+        const canvas = await html2canvas(clone, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          scrollY: 0,
+          scrollX: 0,
+          backgroundColor: '#ffffff',
+          windowWidth: 794,
+          onclone: (clonedDoc: Document) => {
+            const style = clonedDoc.createElement('style');
+            style.innerHTML = `
+              * { box-sizing: border-box !important; }
+              body { margin: 0 !important; padding: 0 !important; background: #ffffff !important; }
+              table.invoice-table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; }
+            `;
+            clonedDoc.head.appendChild(style);
+            sanitizeColors(clonedDoc.body);
+          }
+        });
+
+        const pdf = new jsPDF({
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait'
+        });
+
+        const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
+        const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+        if (imgHeight <= pageHeight) {
+          pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
+        } else {
+          let heightLeft = imgHeight;
+          let position = 0;
+          pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+          while (heightLeft > 0) {
+            position -= pageHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+          }
+        }
+
+        pdf.save(`${documentTitle}.pdf`);
+      } finally {
+        if (container.parentNode) {
+          document.body.removeChild(container);
+        }
+      }
+
+      // Record invoice in DB if handler provided
+      if (docType === 'invoice' && onCreateInvoice) {
+        try {
+          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const validTenantId = selectedTenant?.id && uuidPattern.test(selectedTenant.id) ? selectedTenant.id : null;
+          await onCreateInvoice({
+            invoiceNumber: metadata.invoiceNumber,
+            tenantId: validTenantId,
+            tenantName: metadata.tenantName,
+            roomNumber: selectedTenant?.roomNumber || '',
+            building: selectedTenant?.building || '',
+            date: metadata.invDate,
+            dueDate: metadata.dueDate,
+            amount: invoiceGrandTotal,
+            totalAmount: invoiceGrandTotal,
+            rentAmount: totalAmount,
+            extraPersonSurcharge: 0,
+            addOnTotal: 0,
+            adminFee: 0,
+            depositAmount: 0,
+            subtotal: totalAmount,
+            vatRate: 0,
+            vatAmount: totalVatAmount,
+            status: 'Pending',
+            type: 'Standard Invoice',
+            description: lineItems.map(i => i.description).filter(Boolean).join('; ') || 'Serviced Residence Fee',
+            notes: `Invoice No: ${metadata.invoiceNumber}`,
+          });
+        } catch (err) {
+          console.warn('Optional invoice auto-record note:', err);
+        }
+      }
+
+      // Log Activity
+      if (onAddActivity) {
+        onAddActivity(
+          'billing',
+          `Generated ${docType === 'invoice' ? 'Invoice' : 'Extension'} Document`,
+          `Staff generated and downloaded ${docType === 'invoice' ? `Invoice #${metadata.invoiceNumber} (€${invoiceGrandTotal.toFixed(2)})` : `Contract Extension (+${extensionMonths}m)`} for ${metadata.tenantName || selectedTenant?.name}.`
+        );
+      }
+
+      showToast(
+        docType === 'invoice'
+          ? `Invoice #${metadata.invoiceNumber} downloaded directly as PDF!`
+          : `Contract Extension document downloaded directly as PDF!`
+      );
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      showToast(`Failed to generate PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  // Optional Print Dialog Action for physical printers
+  const handlePrintDialog = () => {
     if (docType === 'invoice' && isDuplicateInvoice) {
       showToast('Error: Duplicate invoice number detected. Please enter a unique invoice number.');
       return;
@@ -255,7 +472,7 @@ export default function DocumentGeneratorView({
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      showToast('Please enable popups in your browser to print and download the document.');
+      showToast('Please enable popups in your browser to print the document.');
       return;
     }
 
@@ -274,37 +491,66 @@ export default function DocumentGeneratorView({
           <style>
             @page {
               size: A4 portrait;
-              margin: 14mm 16mm;
+              margin: 8mm 10mm;
             }
             * {
-              box-sizing: border-box;
+              box-sizing: border-box !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
             body {
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-              margin: 0;
-              padding: 20px;
+              margin: 0 !important;
+              padding: 0 !important;
               color: #0f172a;
               background: #fff;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
+              line-height: 1.35;
+              width: 100% !important;
             }
             .print-container {
-              max-width: 820px;
-              margin: 0 auto;
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            table.invoice-meta-table, 
+            table.invoice-bank-table {
+              border-collapse: collapse;
+              width: auto;
+              margin: 0;
+            }
+            table.invoice-meta-table td, 
+            table.invoice-bank-table td {
+              border: none !important;
+              padding: 1.5px 0;
+              vertical-align: top;
             }
             table.invoice-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 12px;
+              width: 100% !important;
+              max-width: 100% !important;
+              table-layout: fixed !important;
+              border-collapse: collapse !important;
+              margin-top: 10px;
             }
             table.invoice-table th, 
             table.invoice-table td {
               border: 1px solid #111827 !important;
-              padding: 6px 8px;
+              padding: 4px 6px;
             }
             @media print {
-              body { padding: 0; }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+              }
+              .print-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
               .no-print { display: none !important; }
+              .page-break-avoid { page-break-inside: avoid; break-inside: avoid; }
             }
           </style>
           <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -322,46 +568,6 @@ export default function DocumentGeneratorView({
       </html>
     `);
     printWindow.document.close();
-
-    // Optionally record invoice if handler provided
-    if (docType === 'invoice' && onCreateInvoice) {
-      try {
-        await onCreateInvoice({
-          id: metadata.invoiceNumber,
-          tenantId: selectedTenant?.id || 'manual',
-          tenantName: metadata.tenantName,
-          roomNumber: selectedTenant?.roomNumber || '',
-          building: selectedTenant?.building || '',
-          date: metadata.invDate,
-          dueDate: metadata.dueDate,
-          rentAmount: totalAmount,
-          extraPersonSurcharge: 0,
-          addOnTotal: 0,
-          adminFee: 0,
-          depositAmount: 0,
-          subtotal: totalAmount,
-          vatRate: 0,
-          vatAmount: totalVatAmount,
-          totalAmount: invoiceGrandTotal,
-          status: 'Pending',
-          type: 'Standard Invoice',
-          description: lineItems.map(i => i.description).filter(Boolean).join('; ') || 'Serviced Residence Fee'
-        });
-      } catch (err) {
-        console.warn('Optional invoice auto-record note:', err);
-      }
-    }
-
-    // Log Activity
-    if (onAddActivity) {
-      onAddActivity(
-        'billing',
-        `Generated ${docType === 'invoice' ? 'Invoice' : 'Extension'} Document`,
-        `Staff generated ${docType === 'invoice' ? `Invoice #${metadata.invoiceNumber} (€${invoiceGrandTotal.toFixed(2)})` : `Contract Extension (+${extensionMonths}m)`} for ${metadata.tenantName || selectedTenant?.name}.`
-      );
-    }
-
-    showToast(`Document generated! Print dialog launched for download.`);
   };
 
   // Helper to format currency display
@@ -849,20 +1055,40 @@ export default function DocumentGeneratorView({
               </div>
             )}
 
-            {/* Print & Download Action Button */}
-            <div className="pt-3 border-t border-brand-border">
+            {/* Direct PDF Download & Print Action Buttons */}
+            <div className="pt-3 border-t border-brand-border space-y-2">
               <button
                 type="button"
-                disabled={docType === 'invoice' && isDuplicateInvoice}
+                disabled={(docType === 'invoice' && isDuplicateInvoice) || isGeneratingPdf}
                 onClick={handleGenerateAndDownload}
                 className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-brand ${
-                  docType === 'invoice' && isDuplicateInvoice
+                  (docType === 'invoice' && isDuplicateInvoice) || isGeneratingPdf
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
                     : 'bg-brand-primary hover:bg-[#4E4E37] text-white'
                 }`}
               >
-                <Printer className="h-4 w-4" />
-                <span>Generate &amp; Download Document (PDF)</span>
+                {isGeneratingPdf ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Generating &amp; Downloading PDF...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    <span>Download {docType === 'invoice' ? 'Invoice' : 'Addendum'} as PDF</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={(docType === 'invoice' && isDuplicateInvoice) || isGeneratingPdf}
+                onClick={handlePrintDialog}
+                className="w-full py-2 bg-brand-surface hover:bg-brand-border text-brand-dark border border-brand-border rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                title="Open system print preview dialog if printing to a physical printer"
+              >
+                <Printer className="h-3.5 w-3.5 text-brand-stone" />
+                <span>Open System Print Dialog</span>
               </button>
             </div>
           </div>
@@ -936,35 +1162,45 @@ export default function DocumentGeneratorView({
                     </h1>
 
                     <div className="inline-block text-left text-[11px] leading-relaxed text-slate-800 pt-1">
-                      <div className="grid grid-cols-[105px_10px_auto] gap-y-1">
-                        <span className="font-medium text-slate-700">Invoice no.</span>
-                        <span>:</span>
-                        <span className="font-bold font-mono text-slate-900">{metadata.invoiceNumber}</span>
-
-                        <span className="font-medium text-slate-700">Inv. Date</span>
-                        <span>:</span>
-                        <span className="text-slate-900">{metadata.invDate}</span>
-
-                        <span className="font-medium text-slate-700">Due Date</span>
-                        <span>:</span>
-                        <span className="text-slate-900">{metadata.dueDate}</span>
-
-                        <span className="font-medium text-slate-700">Stay Period</span>
-                        <span>:</span>
-                        <span className="text-slate-900">{metadata.stayPeriod}</span>
-
-                        <span className="font-medium text-slate-700">Guest Count</span>
-                        <span>:</span>
-                        <span className="text-slate-900">{metadata.guestCount}</span>
-
-                        <span className="font-medium text-slate-700">Tenant Name</span>
-                        <span>:</span>
-                        <span className="font-semibold text-slate-900">{metadata.tenantName}</span>
-
-                        <span className="font-medium text-slate-700">Accommodation</span>
-                        <span>:</span>
-                        <span className="text-slate-900">{metadata.accommodation}</span>
-                      </div>
+                      <table className="invoice-meta-table" style={{ borderCollapse: 'collapse', border: 'none', width: 'auto' }}>
+                        <tbody>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Invoice no.</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="font-bold font-mono text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.invoiceNumber}</td>
+                          </tr>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Inv. Date</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.invDate}</td>
+                          </tr>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Due Date</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.dueDate}</td>
+                          </tr>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Stay Period</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.stayPeriod}</td>
+                          </tr>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Guest Count</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.guestCount}</td>
+                          </tr>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Tenant Name</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="font-semibold text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.tenantName}</td>
+                          </tr>
+                          <tr>
+                            <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Accommodation</td>
+                            <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                            <td className="text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{metadata.accommodation}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
@@ -973,17 +1209,17 @@ export default function DocumentGeneratorView({
                 <div className="mt-6">
                   <table 
                     className="w-full text-left text-[11px] border-collapse invoice-table border border-slate-900" 
-                    style={{ border: '1px solid #0f172a' }}
+                    style={{ border: '1px solid #0f172a', tableLayout: 'fixed', width: '100%' }}
                   >
                     <thead>
                       <tr className="bg-slate-50 text-slate-900 font-bold uppercase text-[10px]">
-                        <th className="py-2.5 px-2 border border-slate-900 text-center w-12">Sl. No.</th>
-                        <th className="py-2.5 px-3 border border-slate-900">Description</th>
-                        <th className="py-2.5 px-3 border border-slate-900 text-right w-24">Amount</th>
-                        <th className="py-2.5 px-2 border border-slate-900 text-center w-16">VAT%</th>
-                        <th className="py-2.5 px-3 border border-slate-900 text-right w-24">VAT Amount</th>
-                        <th className="py-2.5 px-3 border border-slate-900 text-right w-24">Extra Taxes</th>
-                        <th className="py-2.5 px-3 border border-slate-900 text-right w-24">Total</th>
+                        <th className="py-2.5 px-2 border border-slate-900 text-center" style={{ width: '8%' }}>Sl. No.</th>
+                        <th className="py-2.5 px-3 border border-slate-900" style={{ width: '33%' }}>Description</th>
+                        <th className="py-2.5 px-2 border border-slate-900 text-right font-mono" style={{ width: '12%' }}>Amount</th>
+                        <th className="py-2.5 px-2 border border-slate-900 text-center font-mono" style={{ width: '9%' }}>VAT%</th>
+                        <th className="py-2.5 px-2 border border-slate-900 text-right font-mono" style={{ width: '12%' }}>VAT Amount</th>
+                        <th className="py-2.5 px-2 border border-slate-900 text-right font-mono" style={{ width: '12%' }}>Extra Taxes</th>
+                        <th className="py-2.5 px-2 border border-slate-900 text-right font-mono" style={{ width: '14%' }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1000,18 +1236,7 @@ export default function DocumentGeneratorView({
                         </tr>
                       ))}
 
-                      {/* Empty filler rows to match the official PDF layout structure */}
-                      {Array.from({ length: Math.max(0, 3 - lineItems.length) }).map((_, fIdx) => (
-                        <tr key={`filler-${fIdx}`} className="h-8">
-                          <td className="border border-slate-900 py-2 px-2">&nbsp;</td>
-                          <td className="border border-slate-900 py-2 px-3">&nbsp;</td>
-                          <td className="border border-slate-900 py-2 px-3">&nbsp;</td>
-                          <td className="border border-slate-900 py-2 px-2">&nbsp;</td>
-                          <td className="border border-slate-900 py-2 px-3">&nbsp;</td>
-                          <td className="border border-slate-900 py-2 px-3">&nbsp;</td>
-                          <td className="border border-slate-900 py-2 px-3">&nbsp;</td>
-                        </tr>
-                      ))}
+
 
                       {/* Total Row matching standard invoice accounting */}
                       <tr className="bg-slate-50 font-bold text-slate-900">
@@ -1041,28 +1266,39 @@ export default function DocumentGeneratorView({
                 {/* Bank Details Section */}
                 <div className="pt-6 space-y-2 text-[11px] text-slate-800">
                   <h3 className="font-bold text-slate-900 text-xs">Bank Details</h3>
-                  <div className="grid grid-cols-[105px_auto] gap-y-1 leading-relaxed">
-                    <span className="font-medium text-slate-700">Bank</span>
-                    <span className="font-semibold text-slate-900">{OFFICIAL_COMPANY_DETAILS.bank}</span>
-
-                    <span className="font-medium text-slate-700">Account Name</span>
-                    <span className="font-semibold text-slate-900">{OFFICIAL_COMPANY_DETAILS.accountName}</span>
-
-                    <span className="font-medium text-slate-700">IBAN</span>
-                    <span className="font-mono font-bold text-slate-900">{OFFICIAL_COMPANY_DETAILS.iban}</span>
-
-                    <span className="font-medium text-slate-700">BIC</span>
-                    <span className="font-mono font-bold text-slate-900">{OFFICIAL_COMPANY_DETAILS.bic}</span>
-                  </div>
+                  <table className="invoice-bank-table" style={{ borderCollapse: 'collapse', border: 'none', width: 'auto' }}>
+                    <tbody>
+                      <tr>
+                        <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Bank</td>
+                        <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                        <td className="font-semibold text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{OFFICIAL_COMPANY_DETAILS.bank}</td>
+                      </tr>
+                      <tr>
+                        <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>Account Name</td>
+                        <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                        <td className="font-semibold text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{OFFICIAL_COMPANY_DETAILS.accountName}</td>
+                      </tr>
+                      <tr>
+                        <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>IBAN</td>
+                        <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                        <td className="font-mono font-bold text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{OFFICIAL_COMPANY_DETAILS.iban}</td>
+                      </tr>
+                      <tr>
+                        <td className="font-medium text-slate-700" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none', width: '105px', whiteSpace: 'nowrap' }}>BIC</td>
+                        <td className="text-slate-700 text-center" style={{ padding: '1.5px 4px', verticalAlign: 'top', border: 'none', width: '12px' }}>:</td>
+                        <td className="font-mono font-bold text-slate-900" style={{ padding: '1.5px 0', verticalAlign: 'top', border: 'none' }}>{OFFICIAL_COMPANY_DETAILS.bic}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
 
                 {/* Footer Section: "Thank you for choosing Seven Rocks Vienna!" + Company/Bank footer */}
-                <div className="pt-10 space-y-4">
+                <div className="pt-8 space-y-3">
                   <p className="text-center text-xs font-semibold text-slate-900 italic">
                     {OFFICIAL_COMPANY_DETAILS.tagline}
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-[9.5px] leading-relaxed text-slate-600 border-t border-slate-200 pt-3">
+                  <div className="grid grid-cols-3 gap-4 text-[9.5px] leading-relaxed text-slate-600 border-t border-slate-200 pt-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
                     <div>
                       <p className="font-bold text-slate-900">{OFFICIAL_COMPANY_DETAILS.name}</p>
                       <p>{OFFICIAL_COMPANY_DETAILS.fullAddress}</p>
