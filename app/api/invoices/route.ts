@@ -12,8 +12,37 @@ function isValidUUID(val: any): boolean {
 
 export async function GET() {
   try {
-    const i = await db.select().from(invoices);
-    return NextResponse.json(i);
+    const rows = await db
+      .select({
+        id: invoices.id,
+        tenantId: invoices.tenantId,
+        amount: invoices.amount,
+        status: invoices.status,
+        dueDate: invoices.dueDate,
+        type: invoices.type,
+        description: invoices.description,
+        rentAmount: invoices.rentAmount,
+        extraPersonSurcharge: invoices.extraPersonSurcharge,
+        addOnTotal: invoices.addOnTotal,
+        adminFee: invoices.adminFee,
+        depositAmount: invoices.depositAmount,
+        subtotal: invoices.subtotal,
+        vatRate: invoices.vatRate,
+        vatAmount: invoices.vatAmount,
+        paymentMethod: invoices.paymentMethod,
+        paymentDate: invoices.paymentDate,
+        paymentChannel: invoices.paymentChannel,
+        notes: invoices.notes,
+        createdAt: invoices.createdAt,
+        updatedAt: invoices.updatedAt,
+        tenantName: tenants.fullName,
+        roomNumber: tenants.roomNumber,
+        building: tenants.propertyLocation,
+      })
+      .from(invoices)
+      .leftJoin(tenants, eq(invoices.tenantId, tenants.id));
+
+    return NextResponse.json(rows);
   } catch (error: any) {
     console.error('Invoice fetch error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

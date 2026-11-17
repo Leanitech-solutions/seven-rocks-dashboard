@@ -215,6 +215,7 @@ export default function BillingView({
                           inv.roomNumber.toLowerCase().includes(searchTerm.toLowerCase());
     
     if (filterPaymentStatus === 'All') return matchesSearch;
+    if (filterPaymentStatus === 'Desk Requested') return matchesSearch && inv.status === 'Desk Payment Requested';
     return matchesSearch && inv.status === filterPaymentStatus;
   });
 
@@ -677,19 +678,29 @@ export default function BillingView({
           {/* Controls Bar */}
           <div className="bg-white p-4 rounded-2xl border border-brand-border flex flex-col xl:flex-row xl:items-center justify-between gap-4 flex-wrap">
             <div className="flex space-x-1.5 overflow-x-auto">
-              {['All', 'Paid', 'Pending', 'Overdue'].map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setFilterPaymentStatus(status)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 cursor-pointer ${
-                    filterPaymentStatus === status
-                      ? 'bg-brand-primary text-white border border-brand-primary'
-                      : 'bg-brand-surface text-brand-secondary border border-brand-border hover:bg-[#E5E0D8]'
-                  }`}
-                >
-                  {status}
-                </button>
-              ))}
+              {['All', 'Desk Requested', 'Paid', 'Pending', 'Overdue'].map((status) => {
+                const deskCount = invoices.filter(i => i.status === 'Desk Payment Requested').length;
+                return (
+                  <button
+                    key={status}
+                    onClick={() => setFilterPaymentStatus(status)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 cursor-pointer flex items-center space-x-1.5 ${
+                      filterPaymentStatus === status
+                        ? 'bg-brand-primary text-white border border-brand-primary'
+                        : 'bg-brand-surface text-brand-secondary border border-brand-border hover:bg-[#E5E0D8]'
+                    }`}
+                  >
+                    <span>{status}</span>
+                    {status === 'Desk Requested' && deskCount > 0 && (
+                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                        filterPaymentStatus === status ? 'bg-white text-brand-primary' : 'bg-amber-200 text-amber-900'
+                      }`}>
+                        {deskCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -959,11 +970,13 @@ export default function BillingView({
                             <span className={`inline-flex items-center w-max px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
                               inv.status === 'Paid' 
                                 ? 'bg-brand-surface text-brand-primary border-brand-border'
+                                : inv.status === 'Desk Payment Requested'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold'
                                 : inv.status === 'Pending'
                                 ? 'bg-amber-50 text-amber-800 border-amber-200'
                                 : 'bg-rose-50 text-rose-800 border-rose-200'
                             }`}>
-                              {inv.status}
+                              {inv.status === 'Desk Payment Requested' ? 'Desk Requested' : inv.status}
                             </span>
                             {inv.status === 'Pending' && getDaysRemaining(inv.dueDate) >= 0 && getDaysRemaining(inv.dueDate) <= 3 && (
                               <span className="inline-flex items-center gap-1 text-[9px] text-amber-600 font-extrabold animate-pulse">
@@ -1336,8 +1349,34 @@ export default function BillingView({
                 </div>
               )}
 
-              {/* Desk Settlement Actions */}
-              {selectedInvoice.status !== 'Paid' && (
+              {/* Front Desk Settlement Review & Confirmation */}
+              {selectedInvoice.status === 'Desk Payment Requested' && (
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl space-y-2.5 text-xs shadow-xs">
+                  <div className="flex items-center space-x-2 text-amber-950 font-bold">
+                    <Clock className="h-4 w-4 text-amber-700 shrink-0" />
+                    <span>Front Desk Settlement Review</span>
+                  </div>
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    Resident has requested to settle this invoice at reception. Once payment is received via terminal or cash, click to confirm and settle:
+                  </p>
+                  <button
+                    onClick={() => handleRecordPayment(selectedInvoice.id, 'Desk Terminal (Cash/Card)', 'Desk', 'Verified & settled at reception')}
+                    className="w-full py-2.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[11px] font-bold rounded-xl transition-colors text-center cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Confirm Payment Received (Mark Paid)</span>
+                  </button>
+                  <button
+                    onClick={() => onUpdateInvoiceStatus(selectedInvoice.id, 'Pending')}
+                    className="w-full py-1.5 bg-white hover:bg-amber-100/50 border border-amber-300 text-amber-900 text-[10px] font-semibold rounded-lg transition-colors text-center cursor-pointer"
+                  >
+                    Revert to Pending
+                  </button>
+                </div>
+              )}
+
+              {/* Standard Desk Settlement for Pending / Overdue Invoices */}
+              {selectedInvoice.status !== 'Paid' && selectedInvoice.status !== 'Desk Payment Requested' && (
                 <div className="space-y-2.5 pt-2">
                   <p className="text-[10px] text-brand-stone font-bold uppercase text-center font-sans">Settle Account balance</p>
                   <button

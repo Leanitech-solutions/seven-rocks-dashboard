@@ -56,9 +56,9 @@ function mapInvoice(i: any, tenantLookup: Record<string, any>): Invoice {
   return {
     id: i.id,
     tenantId: i.tenantId,
-    tenantName: t?.fullName || 'Resident',
-    roomNumber: t?.roomNumber || 'Unknown',
-    building: t?.propertyLocation || 'Unknown',
+    tenantName: i.tenantName || t?.fullName || 'Resident',
+    roomNumber: i.roomNumber || t?.roomNumber || 'Unknown',
+    building: i.building || t?.propertyLocation || 'Unknown',
     date: i.createdAt ? new Date(i.createdAt).toISOString().split('T')[0] : i.dueDate,
     dueDate: i.dueDate || '',
     rentAmount: Number(i.rentAmount) || subtotal,
@@ -508,24 +508,26 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const handlePayInvoice = useCallback(async (invoiceId: string, paymentMethod: string) => {
+  const handlePayInvoice = useCallback(async (invoiceId: string, paymentMethod: string, status: 'Paid' | 'Desk Payment Requested' = 'Desk Payment Requested') => {
     const today = new Date().toISOString().split('T')[0];
     try {
       const res = await fetch(`/api/invoices/${invoiceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          status: 'Paid',
+          status,
           paymentMethod,
-          paymentDate: today,
+          paymentChannel: 'Desk',
+          paymentDate: status === 'Paid' ? today : null,
         }),
       });
       if (res.ok) {
-        setInvoices(prev => prev.map(inv => inv.id === invoiceId ? {
+        setInvoices(prev => prev.map(inv => (inv.id === invoiceId || inv.notes?.includes(invoiceId)) ? {
           ...inv,
-          status: 'Paid',
+          status,
           paymentMethod,
-          paymentDate: today,
+          paymentChannel: 'Desk',
+          paymentDate: status === 'Paid' ? today : undefined,
         } : inv));
       }
     } catch (err) {
@@ -533,7 +535,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const handleUpdateInvoiceStatus = useCallback(async (invoiceId: string, status: 'Paid' | 'Pending' | 'Overdue', paymentMethod?: string, paymentChannel?: 'Online' | 'Desk', notes?: string) => {
+  const handleUpdateInvoiceStatus = useCallback(async (invoiceId: string, status: 'Paid' | 'Pending' | 'Overdue' | 'Desk Payment Requested', paymentMethod?: string, paymentChannel?: 'Online' | 'Desk', notes?: string) => {
     const today = new Date().toISOString().split('T')[0];
     try {
       const res = await fetch(`/api/invoices/${invoiceId}`, {
@@ -548,7 +550,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         }),
       });
       if (res.ok) {
-        setInvoices(prev => prev.map(inv => inv.id === invoiceId ? {
+        setInvoices(prev => prev.map(inv => (inv.id === invoiceId || inv.notes?.includes(invoiceId)) ? {
           ...inv,
           status,
           paymentMethod,

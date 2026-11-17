@@ -21,7 +21,7 @@ export const FEATURES = {
    * Admin Billing & Invoices View
    * When false: Hides the "Billing & Invoices" navigation item from the Sidebar.
    */
-  adminBilling: false,
+  adminBilling: true,
 
   /**
    * Dashboard Financial Metrics & PMS Occupancy Charts

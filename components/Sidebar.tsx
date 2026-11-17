@@ -30,11 +30,12 @@ const DEPARTMENT_MAP: Record<string, string> = {
 };
 
 // Items that are always visible regardless of department
-const ALWAYS_VISIBLE = new Set(['dashboard', 'admins', 'settings', 'verification', 'documents']);
+const ALWAYS_VISIBLE = new Set(['dashboard', 'admins', 'settings', 'verification', 'billing', 'documents']);
 
 interface SidebarProps {
   openTicketsCount: number;
   pendingRequestsCount: number;
+  pendingDeskInvoicesCount?: number;
   onLogout?: () => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
@@ -43,6 +44,7 @@ interface SidebarProps {
 export default function Sidebar({ 
   openTicketsCount, 
   pendingRequestsCount, 
+  pendingDeskInvoicesCount,
   onLogout,
   isOpenMobile,
   onCloseMobile
@@ -112,9 +114,13 @@ export default function Sidebar({
       icon: Brush,
       badge: openTicketsCount > 0 ? openTicketsCount : undefined
     },
-    ...(FEATURES.adminBilling 
-      ? [{ id: 'billing', label: 'Billing & Invoices', icon: Receipt }] 
-      : [{ id: 'verification', label: 'Staff Verification', icon: ClipboardCheck }]),
+    { id: 'verification', label: 'Staff Verification', icon: ClipboardCheck },
+    { 
+      id: 'billing', 
+      label: 'Billing & Invoices', 
+      icon: Receipt,
+      badge: pendingDeskInvoicesCount && pendingDeskInvoicesCount > 0 ? pendingDeskInvoicesCount : undefined
+    },
     { id: 'documents', label: 'Document Generator', icon: FileSpreadsheet },
     { id: 'admins', label: 'Staff & Admins', icon: Shield },
     { id: 'settings', label: 'Settings & Policies', icon: Settings },

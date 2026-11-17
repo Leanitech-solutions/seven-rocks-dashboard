@@ -45,6 +45,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       <Sidebar 
         openTicketsCount={ctx.tickets?.filter((t: any) => t.status !== 'Resolved').length || 0}
         pendingRequestsCount={ctx.addOnRequests?.filter((r: any) => r.status === 'Pending').length || 0}
+        pendingDeskInvoicesCount={ctx.invoices?.filter((i: any) => i.status === 'Desk Payment Requested').length || 0}
         onLogout={handleLogout}
         isOpenMobile={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}

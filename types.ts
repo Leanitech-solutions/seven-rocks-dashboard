@@ -135,7 +135,7 @@ export interface Invoice {
   vatRate: number; // standard e.g. 10% for housing, or 21% for services
   vatAmount: number;
   totalAmount: number;
-  status: 'Paid' | 'Pending' | 'Overdue';
+  status: 'Paid' | 'Pending' | 'Overdue' | 'Desk Payment Requested';
   paymentMethod?: string;
   paymentDate?: string;
   invoiceFileName?: string; // uploaded invoice file

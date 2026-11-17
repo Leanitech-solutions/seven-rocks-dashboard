@@ -8,7 +8,8 @@ import {
   PlusCircle,
   BellRing,
   ShieldAlert,
-  ClipboardCheck
+  ClipboardCheck,
+  Receipt
 } from 'lucide-react';
 import Link from 'next/link';
 import { Tenant, SupportTicket, AddOnRequest, Invoice, ActivityLog } from '../types';
@@ -41,6 +42,7 @@ export default function DashboardView({
   
   const openTickets = tickets.filter(t => t.status !== 'Resolved');
   const pendingAddOns = addOnRequests.filter(r => r.status === 'Pending');
+  const pendingDeskInvoices = invoices.filter(i => i.status === 'Desk Payment Requested');
   
   // Financial numbers
   const totalRent = activeTenants.reduce((sum, t) => sum + t.monthlyRent, 0);
@@ -135,6 +137,32 @@ export default function DashboardView({
           </button>
         </div>
       </div>
+
+      {/* Front Desk Settlement Review Alert Banner */}
+      {pendingDeskInvoices.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs animate-fade-in">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-3 bg-amber-100 text-amber-900 rounded-xl shrink-0 border border-amber-300">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-amber-950 text-sm font-serif">
+                {pendingDeskInvoices.length} Front Desk Settlement Request{pendingDeskInvoices.length > 1 ? 's' : ''} Awaiting Review
+              </h4>
+              <p className="text-xs text-amber-900/80 mt-0.5">
+                Resident{pendingDeskInvoices.length > 1 ? 's have' : ' has'} requested in-person settlement at reception. Review payment and confirm in Billing.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigateToTab('billing')}
+            className="px-4 py-2 bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 shadow-xs flex items-center space-x-1.5"
+          >
+            <span>Review at Desk ({pendingDeskInvoices.length})</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -173,19 +173,24 @@ export default function PortalPage() {
     } catch (err) { console.error('Failed to submit ticket:', err); }
   };
 
-  const handlePayInvoice = async (invoiceId: string, paymentMethod: string) => {
+  const handlePayInvoice = async (invoiceId: string, paymentMethod: string, status: string = 'Desk Payment Requested') => {
     try {
       const res = await fetch(`/api/invoices/${invoiceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Paid', paymentMethod, paymentDate: new Date().toISOString().split('T')[0] }),
+        body: JSON.stringify({
+          status,
+          paymentMethod,
+          paymentChannel: 'Desk',
+          paymentDate: status === 'Paid' ? new Date().toISOString().split('T')[0] : null,
+        }),
       });
       if (res.ok) {
         setInvoices(prev => prev.map(inv =>
-          inv.id === invoiceId ? { ...inv, status: 'Paid', paymentMethod } : inv
+          (inv.id === invoiceId || inv.notes?.includes(invoiceId)) ? { ...inv, status: status as any, paymentMethod, paymentChannel: 'Desk' } : inv
         ));
       }
-    } catch (err) { console.error('Failed to pay invoice:', err); }
+    } catch (err) { console.error('Failed to request desk invoice:', err); }
   };
 
   const handleAddExtensionRequest = async (newReq: ContractExtensionRequest) => {

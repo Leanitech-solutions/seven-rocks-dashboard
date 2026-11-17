@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useMemo, FormEvent } from 'react';
 import { useToast } from '../lib/useToast';
 import { formatId } from '../lib/formatId';
 import { 
@@ -76,8 +76,15 @@ export default function HousekeepingView({
 
   // New Housekeeping scheduling states
   const [housekeepingViewMode, setHousekeepingViewMode] = useState<'list' | 'calendar'>('list');
-  const [calendarYear, setCalendarYear] = useState(2026);
-  const [calendarMonth, setCalendarMonth] = useState(6); // 6 = July (0-indexed)
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
+  const [activeCalendarDate, setActiveCalendarDate] = useState<string>(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  });
   const [selectedCalendarTask, setSelectedCalendarTask] = useState<{ type: 'hk' | 'ticket'; data: any } | null>(null);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [newTenantId, setNewTenantId] = useState('');
@@ -96,8 +103,14 @@ export default function HousekeepingView({
     }
   }, [openActionMenuId]);
 
-  // Target date calculated relative: Today is July 9, 2026
-  const TODAY_STR = "2026-07-09";
+  // Dynamic current date in local YYYY-MM-DD
+  const TODAY_STR = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }, []);
 
   const [showAddTicketForm, setShowAddTicketForm] = useState(false);
   const [newTicketSubject, setNewTicketSubject] = useState('');
@@ -632,7 +645,13 @@ export default function HousekeepingView({
                     <span>List View</span>
                   </button>
                   <button
-                    onClick={() => setHousekeepingViewMode('calendar')}
+                    onClick={() => {
+                      setHousekeepingViewMode('calendar');
+                      const now = new Date();
+                      setCalendarYear(now.getFullYear());
+                      setCalendarMonth(now.getMonth());
+                      setActiveCalendarDate(TODAY_STR);
+                    }}
                     className={`px-3 py-1 text-xs font-bold rounded-md flex items-center space-x-1.5 transition-all cursor-pointer ${
                       housekeepingViewMode === 'calendar'
                         ? 'bg-brand-primary text-white shadow-xs'
@@ -899,12 +918,16 @@ export default function HousekeepingView({
                   <div className="flex flex-wrap items-center gap-3 text-[10px]">
                     <button
                       onClick={() => {
-                        setCalendarYear(2026);
-                        setCalendarMonth(6); // July
+                        const now = new Date();
+                        setCalendarYear(now.getFullYear());
+                        setCalendarMonth(now.getMonth());
+                        setActiveCalendarDate(TODAY_STR);
                       }}
-                      className="px-2.5 py-1 bg-brand-surface border border-brand-border text-brand-primary font-bold rounded-md hover:bg-[#E5E0D8] cursor-pointer"
+                      className="px-2.5 py-1 bg-brand-surface border border-brand-border text-brand-primary font-bold rounded-md hover:bg-[#E5E0D8] cursor-pointer flex items-center space-x-1"
+                      title="Jump to current date"
                     >
-                      Current Month (July '26)
+                      <Calendar className="h-3 w-3 text-brand-primary" />
+                      <span>Today ({MONTHS[new Date().getMonth()]} {new Date().getDate()})</span>
                     </button>
                     <div className="flex items-center gap-3 font-semibold text-brand-secondary">
                       <div className="flex items-center space-x-1">
@@ -936,16 +959,20 @@ export default function HousekeepingView({
                     const cellHousekeeping = housekeepings.filter(h => h.scheduleDate === cell.dateString);
                     const cellTickets = tickets.filter(t => t.createdAt === cell.dateString);
                     const isToday = cell.dateString === TODAY_STR;
+                    const isActive = cell.dateString === (activeCalendarDate || TODAY_STR);
                     const totalTasks = cellHousekeeping.length + cellTickets.length;
                     const isHighLoad = totalTasks >= 3;
 
                     return (
                       <div
                         key={idx}
-                        className={`min-h-[110px] p-2 rounded-xl border flex flex-col justify-between transition-all ${
+                        onClick={() => setActiveCalendarDate(cell.dateString)}
+                        className={`min-h-[110px] p-2 rounded-xl border flex flex-col justify-between transition-all cursor-pointer ${
                           cell.isCurrentMonth
-                            ? isToday
-                              ? 'bg-brand-surface/75 border-brand-primary shadow-xs ring-1 ring-brand-primary/50'
+                            ? isActive
+                              ? 'bg-brand-surface border-brand-primary shadow-sm ring-2 ring-brand-primary/60 scale-[1.01]'
+                              : isToday
+                              ? 'bg-brand-surface/50 border-brand-primary/60 shadow-xs ring-1 ring-brand-primary/30'
                               : isHighLoad
                               ? 'bg-amber-50/20 border-amber-200 hover:bg-amber-50/40'
                               : 'bg-white border-brand-border hover:bg-brand-surface/20'
@@ -956,8 +983,8 @@ export default function HousekeepingView({
                         <div className="flex items-center justify-between pb-1 border-b border-dashed border-brand-border/40">
                           <span className={`text-[11px] font-bold font-mono ${
                             cell.isCurrentMonth 
-                              ? isToday 
-                                ? 'text-brand-primary font-extrabold bg-white px-1.5 py-0.5 rounded-md border border-brand-border' 
+                              ? isActive || isToday 
+                                ? 'text-brand-primary font-extrabold bg-white px-1.5 py-0.5 rounded-md border border-brand-border shadow-2xs' 
                                 : 'text-brand-dark' 
                               : 'text-slate-300'
                           }`}>
@@ -969,7 +996,7 @@ export default function HousekeepingView({
                             </span>
                           )}
                           {cell.isCurrentMonth && isToday && (
-                            <span className="text-[8px] font-extrabold text-brand-primary uppercase tracking-widest scale-95">
+                            <span className="text-[8px] font-extrabold text-brand-primary bg-white/80 border border-brand-border/60 px-1.5 py-0.5 rounded uppercase tracking-widest scale-95 shadow-2xs">
                               Today
                             </span>
                           )}
@@ -980,7 +1007,10 @@ export default function HousekeepingView({
                           {cellHousekeeping.map(hk => (
                             <div
                               key={hk.id}
-                              onClick={() => setSelectedCalendarTask({ type: 'hk', data: hk })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCalendarTask({ type: 'hk', data: hk });
+                              }}
                               className={`p-1 text-[9px] rounded-lg border flex items-center justify-between font-medium cursor-pointer transition-colors ${
                                 hk.status === 'Completed'
                                   ? 'bg-emerald-50 text-emerald-800 border-emerald-100 hover:bg-emerald-100'
@@ -1007,7 +1037,10 @@ export default function HousekeepingView({
                           {cellTickets.map(ticket => (
                             <div
                               key={ticket.id}
-                              onClick={() => setSelectedCalendarTask({ type: 'ticket', data: ticket })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCalendarTask({ type: 'ticket', data: ticket });
+                              }}
                               className={`p-1 text-[9px] rounded-lg border flex items-center justify-between font-medium cursor-pointer transition-colors ${
                                 ticket.status === 'Resolved'
                                   ? 'bg-slate-50 text-slate-400 border-slate-200 line-through'
@@ -1032,6 +1065,59 @@ export default function HousekeepingView({
                     );
                   })}
                 </div>
+
+                {/* Active Selected Date Status & Action Bar */}
+                {activeCalendarDate && (
+                  <div className="bg-brand-surface border border-brand-border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs min-w-[750px]">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2 bg-white rounded-lg border border-brand-border text-brand-primary shadow-2xs">
+                        <Calendar className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-brand-dark text-xs">
+                            {new Date(activeCalendarDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                          {activeCalendarDate === TODAY_STR && (
+                            <span className="px-1.5 py-0.5 bg-brand-primary text-white text-[9px] font-bold rounded shadow-2xs">
+                              Current Date (Active)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-brand-stone mt-0.5">
+                          {housekeepings.filter(h => h.scheduleDate === activeCalendarDate).length} scheduled cleaning(s) &bull; {tickets.filter(t => t.createdAt === activeCalendarDate).length} maintenance ticket(s) on this date
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewDate(activeCalendarDate);
+                          setShowScheduleForm(true);
+                        }}
+                        className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1 shadow-xs"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Schedule on This Date</span>
+                      </button>
+                      {activeCalendarDate !== TODAY_STR && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const now = new Date();
+                            setCalendarYear(now.getFullYear());
+                            setCalendarMonth(now.getMonth());
+                            setActiveCalendarDate(TODAY_STR);
+                          }}
+                          className="px-2.5 py-1.5 bg-white hover:bg-brand-surface border border-brand-border text-brand-stone hover:text-brand-dark rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          Back to Today
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

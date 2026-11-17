@@ -457,10 +457,10 @@ export default function ResidentPortal({
 
     setTimeout(() => {
       setPaymentProcessing(false);
-      onPayInvoice(checkoutInvoice.id, 'Desk Settlement / Requested Invoice');
+      onPayInvoice(checkoutInvoice.id, 'Desk Settlement Requested');
       const invId = checkoutInvoice.id;
       setCheckoutInvoice(null);
-      triggerSuccess(`Desk invoice request logged! Invoice ${invId} marked for front desk settlement.`);
+      triggerSuccess(`Desk settlement request submitted for Invoice ${invId}! Staff at the reception desk have been alerted.`);
     }, 400);
   };
 
@@ -2075,6 +2075,14 @@ export default function ResidentPortal({
                                 <span className="text-brand-primary block font-serif italic">
                                   Settled via {inv.paymentMethod || 'Desk Terminal'}
                                 </span>
+                              ) : inv.status === 'Desk Payment Requested' ? (
+                                <div className="space-y-0.5">
+                                  <span className="inline-flex items-center gap-1 text-amber-900 font-bold">
+                                    <Clock className="h-3 w-3 text-amber-700 shrink-0" />
+                                    Awaiting Desk Review
+                                  </span>
+                                  <span className="text-[9.5px] text-brand-stone block">Pay at reception</span>
+                                </div>
                               ) : (
                                 <span className="text-amber-800 font-semibold block">Unpaid</span>
                               )}
@@ -2117,11 +2125,16 @@ export default function ResidentPortal({
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-surface text-brand-primary border border-brand-border">
                                     Paid &amp; Settled
                                   </span>
+                                ) : inv.status === 'Desk Payment Requested' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-300">
+                                    <Clock className="h-3 w-3 text-amber-700 shrink-0" />
+                                    Desk Request Pending
+                                  </span>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => setCheckoutInvoice(inv)}
-                                    className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer shrink-0"
+                                    className="px-3 py-1.5 bg-brand-primary hover:bg-[#4E4E37] text-white text-[10px] font-bold rounded-lg cursor-pointer shrink-0 transition-colors shadow-xs"
                                   >
                                     Request Desk Invoice
                                   </button>
@@ -2772,8 +2785,8 @@ export default function ResidentPortal({
             
             <div className="flex justify-between items-start border-b border-brand-surface pb-4">
               <div>
-                <h3 className="font-bold text-brand-dark text-base font-serif italic">Front Desk Invoice & Settlement</h3>
-                <p className="text-xs text-brand-stone">Request invoice & arrange payment at reception</p>
+                <h3 className="font-bold text-brand-dark text-base font-serif italic">Front Desk Invoice &amp; Settlement</h3>
+                <p className="text-xs text-brand-stone">Queue invoice for in-person review &amp; payment at reception</p>
               </div>
               <button 
                 onClick={() => setCheckoutInvoice(null)}
@@ -2805,16 +2818,19 @@ export default function ResidentPortal({
               <div className="p-4 bg-brand-surface border border-brand-border rounded-2xl space-y-2">
                 <div className="flex items-center space-x-2 text-brand-dark font-bold text-xs">
                   <Building className="h-4 w-4 text-brand-primary shrink-0" />
-                  <span>Desk Payment Policy</span>
+                  <span>Desk Payment Process</span>
                 </div>
                 <p className="text-[11px] text-brand-secondary leading-relaxed">
-                  All payments are made directly at the front desk. Accepted payment methods include:
+                  Submitting this request alerts our reception and property team. Please visit the reception desk to complete payment using:
                 </p>
                 <ul className="text-[10.5px] text-brand-stone font-medium space-y-1 list-disc list-inside">
-                  <li>Cash at reception</li>
                   <li>Physical Debit / Credit Card (Terminal)</li>
                   <li>Contactless / Apple Pay / Google Pay</li>
+                  <li>Cash at reception</li>
                 </ul>
+                <p className="text-[10.5px] text-amber-900 font-semibold pt-1 border-t border-brand-border/40">
+                  * Invoice status will update to &ldquo;Paid &amp; Settled&rdquo; once reception staff verifies receipt of payment.
+                </p>
               </div>
 
               <div className="flex space-x-3 pt-2">
@@ -2836,7 +2852,7 @@ export default function ResidentPortal({
                   ) : (
                     <>
                       <Receipt className="h-4 w-4" />
-                      <span>Request Desk Invoice</span>
+                      <span>Submit Desk Request</span>
                     </>
                   )}
                 </button>
